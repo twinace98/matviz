@@ -1,0 +1,55 @@
+{
+  "name": "vscode-matviz",
+  "displayName": "MatViz - Crystal Structure Viewer",
+  "description": "Interactive 3D crystal structure visualization for CIF, POSCAR, and XSF files",
+  "version": "0.1.0",
+  "publisher": "matviz",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Visualization"
+  ],
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "customEditors": [
+      {
+        "viewType": "matviz.crystalViewer",
+        "displayName": "Crystal Structure Viewer",
+        "selector": [
+          { "filenamePattern": "*.cif" },
+          { "filenamePattern": "*.xsf" },
+          { "filenamePattern": "*.poscar" },
+          { "filenamePattern": "*.vasp" },
+          { "filenamePattern": "POSCAR" },
+          { "filenamePattern": "CONTCAR" }
+        ],
+        "priority": "default"
+      }
+    ],
+    "commands": [
+      {
+        "command": "matviz.resetCamera",
+        "title": "MatViz: Reset Camera"
+      },
+      {
+        "command": "matviz.toggleBonds",
+        "title": "MatViz: Toggle Bonds"
+      }
+    ]
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/three": "^0.170.0",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.24.0",
+    "three": "^0.170.0",
+    "typescript": "^5.7.0"
+  }
+}
