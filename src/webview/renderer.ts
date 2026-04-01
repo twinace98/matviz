@@ -699,7 +699,12 @@ export class CrystalRenderer {
     let startX = 0;
     let startY = 0;
     let lockedAxis: 'x' | 'y' | null = null;
-    const rotateSpeed = 0.4; // degrees per pixel
+    const baseRotateSpeed = 0.4; // degrees per pixel at reference distance
+    const referenceDistance = 20; // initial camera distance
+    const getRotateSpeed = () => {
+      const dist = this.activeCamera.position.distanceTo(this.controls.target);
+      return baseRotateSpeed * (referenceDistance / Math.max(dist, 1));
+    };
 
     canvas.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return; // left click only
@@ -725,6 +730,7 @@ export class CrystalRenderer {
       startX = e.clientX;
       startY = e.clientY;
 
+      const rotateSpeed = getRotateSpeed();
       if (mode === 'ctrl') {
         // Ctrl+drag: rotate around screen-Z (roll)
         this.rotateCamera(dx * rotateSpeed, 'z');
@@ -1905,6 +1911,18 @@ export class CrystalRenderer {
     this.orthoCamera.updateProjectionMatrix();
     this.orthoCamera.position.copy(camPos);
     this.orthoCamera.lookAt(center);
+
+    // Dynamically adjust clipping planes and fog for large structures
+    const farPlane = Math.max(500, dist * 4);
+    this.perspCamera.far = farPlane;
+    this.perspCamera.updateProjectionMatrix();
+    this.orthoCamera.far = farPlane;
+    this.orthoCamera.updateProjectionMatrix();
+
+    if (this.scene.fog instanceof THREE.FogExp2) {
+      // Scale fog density inversely with scene size so distant atoms remain visible
+      this.scene.fog.density = Math.min(0.015, 3.0 / farPlane);
+    }
 
     this.controls.target.copy(center);
     this.controls.update();
