@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { CrystalStructure } from '../parsers/types';
-import { getWebElement } from './elements-data';
+import { getWebElement, getElementPaletteColor, getPaletteLineColors } from './elements-data';
+import type { ColorPalette } from './elements-data';
 import type { DisplayStyle, CameraMode, BondStyle } from './message';
 import { marchingCubes } from './marchingCubes';
 import type { VolumetricData } from '../parsers/types';
@@ -59,6 +60,7 @@ export class CrystalRenderer {
   private elementColorOverrides = new Map<string, string>();
   private elementRadiusOverrides = new Map<string, number>();
   private elementVisibility = new Map<string, boolean>();
+  private colorPalette: ColorPalette = 'dark';
 
   // On-demand rendering
   private renderRequested = false;
@@ -309,7 +311,7 @@ export class CrystalRenderer {
   }
 
   getElementColor(element: string): string {
-    return this.elementColorOverrides.get(element) || getWebElement(element).color;
+    return this.elementColorOverrides.get(element) || getElementPaletteColor(element, this.colorPalette);
   }
 
   getElementRadius(element: string): number {
@@ -341,6 +343,20 @@ export class CrystalRenderer {
       this.scene.fog.color.setHex(bg);
     }
     this.requestRender();
+  }
+
+  setColorPalette(palette: ColorPalette) {
+    if (palette === this.colorPalette) return;
+    this.colorPalette = palette;
+    if (this.structure) {
+      this.rebuild(false);
+    }
+    if (this.volumetricData) this.buildIsosurface();
+    this.requestRender();
+  }
+
+  getColorPalette(): ColorPalette {
+    return this.colorPalette;
   }
 
   setAtomSelectCallback(cb: typeof this.onAtomSelect) { this.onAtomSelect = cb; }
@@ -481,7 +497,7 @@ export class CrystalRenderer {
         geo.setAttribute('normal', new THREE.BufferAttribute(result.normals, 3));
         this.geometries.push(geo);
         const mat = new THREE.MeshPhongMaterial({
-          color: 0x4444ff,
+          color: this.paletteColors().isoPos,
           transparent: true,
           opacity: 0.6,
           side: THREE.DoubleSide,
@@ -499,7 +515,7 @@ export class CrystalRenderer {
         geo.setAttribute('normal', new THREE.BufferAttribute(result.normals, 3));
         this.geometries.push(geo);
         const mat = new THREE.MeshPhongMaterial({
-          color: 0xff4444,
+          color: this.paletteColors().isoNeg,
           transparent: true,
           opacity: 0.6,
           side: THREE.DoubleSide,
@@ -567,6 +583,7 @@ export class CrystalRenderer {
     cameraPosition: [number, number, number];
     controlsTarget: [number, number, number];
     orthoZoom: number;
+    colorPalette: ColorPalette;
   } {
     const pos = this.activeCamera.position;
     const target = this.controls.target;
@@ -579,6 +596,7 @@ export class CrystalRenderer {
       cameraPosition: [pos.x, pos.y, pos.z],
       controlsTarget: [target.x, target.y, target.z],
       orthoZoom: this.orthoCamera.zoom,
+      colorPalette: this.colorPalette,
     };
   }
 
@@ -587,6 +605,7 @@ export class CrystalRenderer {
     this.showBonds = state.showBonds;
     this.showLabels = state.showLabels;
     this.supercell = state.supercell;
+    if (state.colorPalette) this.colorPalette = state.colorPalette;
 
     if (state.cameraMode !== this.cameraMode) {
       this.setCameraMode(state.cameraMode);
@@ -610,15 +629,16 @@ export class CrystalRenderer {
     const c = new THREE.Vector3(...lat[2]);
 
     let dir: THREE.Vector3;
+    let up: THREE.Vector3;
     switch (axis) {
-      case 'a': dir = a.clone().normalize(); break;
-      case 'b': dir = b.clone().normalize(); break;
-      case 'c': dir = c.clone().normalize(); break;
-      case 'a*': dir = b.clone().cross(c).normalize(); break;
-      case 'b*': dir = c.clone().cross(a).normalize(); break;
-      case 'c*': dir = a.clone().cross(b).normalize(); break;
+      case 'a':  dir = a.clone().normalize();  up = c.clone().normalize(); break;
+      case 'b':  dir = b.clone().normalize();  up = c.clone().normalize(); break;
+      case 'c':  dir = c.clone().normalize();  up = b.clone().normalize(); break;
+      case 'a*': dir = b.clone().cross(c).normalize(); up = c.clone().normalize(); break;
+      case 'b*': dir = c.clone().cross(a).normalize(); up = c.clone().normalize(); break;
+      case 'c*': dir = a.clone().cross(b).normalize(); up = b.clone().normalize(); break;
     }
-    this.animateCameraToDirection(dir);
+    this.animateCameraToDirection(dir, up!);
   }
 
   viewAlongDirection(uvw: [number, number, number]) {
@@ -980,15 +1000,22 @@ export class CrystalRenderer {
     return 0x1e1e1e;
   }
 
+  /** Get palette-appropriate line colors */
+  private paletteColors() {
+    return getPaletteLineColors(this.colorPalette);
+  }
+
   // --- Camera animation ---
 
-  private animateCameraToDirection(dir: THREE.Vector3) {
+  private animateCameraToDirection(dir: THREE.Vector3, up?: THREE.Vector3) {
     if (this.animating) return;
     this.animating = true;
     const target = this.controls.target.clone();
     const dist = this.activeCamera.position.distanceTo(target);
     const endPos = target.clone().add(dir.clone().multiplyScalar(dist));
     const startPos = this.activeCamera.position.clone();
+    const startUp = this.activeCamera.up.clone();
+    const endUp = up ? up.clone() : startUp.clone();
     const startTime = performance.now();
     const duration = 300;
 
@@ -996,6 +1023,7 @@ export class CrystalRenderer {
       const t = Math.min((performance.now() - startTime) / duration, 1);
       const ease = t * (2 - t);
       this.activeCamera.position.lerpVectors(startPos, endPos, ease);
+      this.activeCamera.up.lerpVectors(startUp, endUp, ease).normalize();
       this.activeCamera.lookAt(target);
       this.controls.update();
       this.renderFrame();
@@ -1591,7 +1619,7 @@ export class CrystalRenderer {
     cylGeo.rotateX(Math.PI / 2);
     this.geometries.push(cylGeo);
 
-    const mat = this.getMaterial('#888888', 40);
+    const mat = this.getMaterial(this.paletteColors().bondUnicolor, 40);
     const instMesh = new THREE.InstancedMesh(cylGeo, mat, bonds.length);
     const dummy = new THREE.Object3D();
 
@@ -1805,7 +1833,7 @@ export class CrystalRenderer {
     const outerGeo = new THREE.BufferGeometry();
     outerGeo.setAttribute('position', new THREE.Float32BufferAttribute(outerPts, 3));
     this.geometries.push(outerGeo);
-    this.cellGroup.add(new THREE.LineSegments(outerGeo, new THREE.LineBasicMaterial({ color: 0x888888 })));
+    this.cellGroup.add(new THREE.LineSegments(outerGeo, new THREE.LineBasicMaterial({ color: this.paletteColors().line })));
 
     // Unit cell boundaries as dashed lines (rendered on top of atoms)
     // For 1x1x1: the outer boundary itself; for supercell: internal slices
@@ -1854,7 +1882,7 @@ export class CrystalRenderer {
         const dashGeo = new THREE.BufferGeometry().setFromPoints(dashPts);
         this.geometries.push(dashGeo);
         const dashMat = new THREE.LineDashedMaterial({
-          color: 0x666666,
+          color: this.paletteColors().dash,
           dashSize: 0.3,
           gapSize: 0.15,
           depthTest: false,

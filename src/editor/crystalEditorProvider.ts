@@ -179,6 +179,7 @@ export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvide
     <div class="bar-group">
       <button id="screenshot-btn" class="bar-btn" title="Screenshot">&#x1F4F7;</button>
       <button id="text-toggle" class="bar-btn" title="Toggle raw text view">&#x1F4C4;</button>
+      <button id="palette-toggle" class="bar-btn" title="Color palette: Dark">&#x263E;</button>
     </div>
   </div>
 

@@ -76,6 +76,18 @@ if (cameraBtn) {
   });
 }
 
+// Palette toggle (top bar icon)
+const paletteBtn = document.getElementById('palette-toggle') as HTMLButtonElement;
+if (paletteBtn) {
+  paletteBtn.addEventListener('click', () => {
+    const next = renderer.getColorPalette() === 'dark' ? 'light' : 'dark';
+    renderer.setColorPalette(next);
+    paletteBtn.textContent = next === 'dark' ? '\u263E' : '\u2600';
+    paletteBtn.title = next === 'dark' ? 'Color palette: Dark' : 'Color palette: Light';
+    paletteBtn.classList.toggle('active', next === 'dark');
+  });
+}
+
 // Visibility checkboxes
 const bondsCheck = document.getElementById('bonds-check') as HTMLInputElement;
 const labelsCheck = document.getElementById('labels-check') as HTMLInputElement;
@@ -239,6 +251,11 @@ if (savedState) {
   if (cameraBtn && savedState.cameraMode) {
     cameraBtn.textContent = savedState.cameraMode === 'orthographic' ? 'Ortho' : 'Persp';
     cameraBtn.classList.toggle('active', savedState.cameraMode === 'orthographic');
+  }
+  if (paletteBtn && savedState.colorPalette) {
+    paletteBtn.textContent = savedState.colorPalette === 'dark' ? '\u263E' : '\u2600';
+    paletteBtn.title = savedState.colorPalette === 'dark' ? 'Color palette: Dark' : 'Color palette: Light';
+    paletteBtn.classList.toggle('active', savedState.colorPalette === 'dark');
   }
 }
 
