@@ -2,7 +2,7 @@
   "name": "vscode-matviz",
   "displayName": "MatViz - Crystal Structure Viewer",
   "description": "Interactive 3D crystal structure visualization for CIF, POSCAR, XSF, XYZ, PDB, Gaussian Cube, and more",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "publisher": "matviz",
   "engines": {
     "vscode": "^1.85.0"
@@ -32,7 +32,8 @@
           { "filenamePattern": "AECCAR0" },
           { "filenamePattern": "AECCAR2" },
           { "filenamePattern": "PARCHG" },
-          { "filenamePattern": "geometry.in" }
+          { "filenamePattern": "geometry.in" },
+          { "filenamePattern": "*.out" }
         ],
         "priority": "default"
       }
@@ -65,6 +66,14 @@
       {
         "command": "matviz.screenshot",
         "title": "MatViz: Export Screenshot"
+      },
+      {
+        "command": "matviz.exportCif",
+        "title": "MatViz: Export as CIF"
+      },
+      {
+        "command": "matviz.exportPoscar",
+        "title": "MatViz: Export as POSCAR"
       }
     ]
   },

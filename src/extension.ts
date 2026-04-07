@@ -79,6 +79,18 @@ export function activate(context: vscode.ExtensionContext) {
       provider.postMessageToActive({ type: 'clearLatticePlanes' });
     })
   );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('matviz.exportCif', () => {
+      provider.exportStructure('cif');
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('matviz.exportPoscar', () => {
+      provider.exportStructure('poscar');
+    })
+  );
 }
 
 export function deactivate() {}

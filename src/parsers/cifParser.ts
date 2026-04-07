@@ -87,13 +87,13 @@ export function parseCif(content: string): CrystalStructure {
 
     if (inLoop && !line.startsWith('_') && line.length > 0 && !line.startsWith('#')) {
       if (inSymLoop) {
-        // Parse symmetry operation
-        const op = line.replace(/['"]/g, '').trim();
+        // Parse symmetry operation: strip quotes, optional leading index number
+        let op = line.replace(/['"]/g, '').trim();
+        // Remove leading integer index (e.g. "1 x,y,z" → "x,y,z")
+        op = op.replace(/^\d+\s+/, '');
         if (op.includes(',')) {
-          // Could be "1 x,y,z" or just "x,y,z"
-          const parts = op.split(/\s+/);
-          const symOp = parts.find(p => p.includes(','));
-          if (symOp) symmetryOps.push(symOp);
+          // Remove all spaces so "x, y, z" → "x,y,z"
+          symmetryOps.push(op.replace(/\s/g, ''));
         }
         continue;
       }
@@ -268,6 +268,7 @@ function parseSymOp(op: string): number[][] | null {
     const regex = /([+-]?)(\d+\/\d+|\d+\.?\d*)?([xyz])?/g;
     let match;
     while ((match = regex.exec(expr)) !== null) {
+      if (match[0] === '') { regex.lastIndex++; continue; }
       if (!match[2] && !match[3]) continue;
       const sign = match[1] === '-' ? -1 : 1;
 
@@ -309,10 +310,11 @@ function cartToFrac(lattice: [number, number, number][], x: number, y: number, z
             + a[2] * (b[0] * c[1] - b[1] * c[0]);
   if (Math.abs(det) < 1e-10) return [0, 0, 0];
   const invDet = 1 / det;
+  // Transpose application: f_i = sum_j inv[j][i] * cart[j]
   return [
-    ((b[1] * c[2] - b[2] * c[1]) * x + (a[2] * c[1] - a[1] * c[2]) * y + (a[1] * b[2] - a[2] * b[1]) * z) * invDet,
-    ((b[2] * c[0] - b[0] * c[2]) * x + (a[0] * c[2] - a[2] * c[0]) * y + (a[2] * b[0] - a[0] * b[2]) * z) * invDet,
-    ((b[0] * c[1] - b[1] * c[0]) * x + (a[1] * c[0] - a[0] * c[1]) * y + (a[0] * b[1] - a[1] * b[0]) * z) * invDet,
+    ((b[1] * c[2] - b[2] * c[1]) * x + (b[2] * c[0] - b[0] * c[2]) * y + (b[0] * c[1] - b[1] * c[0]) * z) * invDet,
+    ((a[2] * c[1] - a[1] * c[2]) * x + (a[0] * c[2] - a[2] * c[0]) * y + (a[1] * c[0] - a[0] * c[1]) * z) * invDet,
+    ((a[1] * b[2] - a[2] * b[1]) * x + (a[2] * b[0] - a[0] * b[2]) * y + (a[0] * b[1] - a[1] * b[0]) * z) * invDet,
   ];
 }
 

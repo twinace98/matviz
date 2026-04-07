@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { CrystalStructure, VolumetricData } from '../parsers/types';
 import { parseStructureFile } from '../parsers/index';
+import { exportCif, exportPoscar } from '../parsers/exporters';
 import path from 'path';
 
 class CrystalDocument implements vscode.CustomDocument {
@@ -15,8 +16,30 @@ class CrystalDocument implements vscode.CustomDocument {
 
 export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvider<CrystalDocument> {
   private activeWebview: vscode.Webview | undefined;
+  private activeDocument: CrystalDocument | undefined;
 
   constructor(private readonly context: vscode.ExtensionContext) {}
+
+  async exportStructure(format: 'cif' | 'poscar') {
+    if (!this.activeDocument) {
+      vscode.window.showWarningMessage('No structure open to export.');
+      return;
+    }
+    const content = format === 'cif'
+      ? exportCif(this.activeDocument.structure)
+      : exportPoscar(this.activeDocument.structure);
+    const ext = format === 'cif' ? 'cif' : 'poscar';
+    const uri = await vscode.window.showSaveDialog({
+      filters: { [format.toUpperCase()]: [ext] },
+      defaultUri: vscode.Uri.file(
+        this.activeDocument.uri.fsPath.replace(/\.[^.]+$/, `.${ext}`)
+      ),
+    });
+    if (uri) {
+      await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(content));
+      vscode.window.showInformationMessage(`Exported to ${uri.fsPath}`);
+    }
+  }
 
   async openCustomDocument(
     uri: vscode.Uri,
@@ -36,6 +59,7 @@ export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvide
     _token: vscode.CancellationToken
   ): Promise<void> {
     this.activeWebview = webviewPanel.webview;
+    this.activeDocument = document;
 
     webviewPanel.webview.options = {
       enableScripts: true,
@@ -65,17 +89,22 @@ export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvide
           });
         }
       }
+      if (msg.type === 'openAsText') {
+        vscode.commands.executeCommand('vscode.openWith', document.uri, 'default');
+      }
     });
 
     webviewPanel.onDidChangeViewState(() => {
       if (webviewPanel.visible) {
         this.activeWebview = webviewPanel.webview;
+        this.activeDocument = document;
       }
     });
 
     webviewPanel.onDidDispose(() => {
       if (this.activeWebview === webviewPanel.webview) {
         this.activeWebview = undefined;
+        this.activeDocument = undefined;
       }
     });
   }
@@ -104,6 +133,12 @@ export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvide
 </head>
 <body>
   <canvas id="canvas"></canvas>
+
+  <!-- Mode toolbar (far left) -->
+  <div id="mode-bar">
+    <button id="mode-navigate" class="mode-btn active" title="Navigate (click atom for info)">&#x25C7;</button>
+    <button id="mode-measure" class="mode-btn" title="Measure (click 2/3/4 atoms)">&#x2194;</button>
+  </div>
 
   <!-- Top toolbar (VESTA-style) -->
   <div id="top-bar">
@@ -143,11 +178,14 @@ export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvide
     <span class="bar-sep"></span>
     <div class="bar-group">
       <button id="screenshot-btn" class="bar-btn" title="Screenshot">&#x1F4F7;</button>
+      <button id="text-toggle" class="bar-btn" title="Toggle raw text view">&#x1F4C4;</button>
+      <button id="palette-toggle" class="bar-btn" title="Color palette: Dark">&#x263E;</button>
     </div>
   </div>
 
   <!-- Left sidebar controls -->
   <div id="side-panel">
+    <div id="panel-resize"></div>
     <div id="info"></div>
     <div class="panel-section">
       <div class="panel-label">Style</div>
@@ -168,7 +206,13 @@ export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvide
         <label class="toggle"><input type="checkbox" id="bonds-check" checked><span>Bonds</span></label>
         <label class="toggle"><input type="checkbox" id="labels-check"><span>Labels</span></label>
         <label class="toggle"><input type="checkbox" id="poly-check"><span>Polyhedra</span></label>
+        <label class="toggle"><input type="checkbox" id="boundary-check"><span>Boundary</span></label>
+        <label class="toggle"><input type="checkbox" id="celldash-check" checked><span>Cell lines</span></label>
       </div>
+    </div>
+    <div class="panel-section">
+      <div class="panel-label">Axes size</div>
+      <input type="range" id="axis-size" class="iso-slider" min="60" max="400" step="10" value="300">
     </div>
     <div class="panel-section">
       <div class="panel-label">Supercell</div>
@@ -177,6 +221,19 @@ export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvide
         <input type="number" id="sc-b" value="1" min="1" max="5" class="sc-input" title="b">
         <input type="number" id="sc-c" value="1" min="1" max="5" class="sc-input" title="c">
       </div>
+    </div>
+    <div class="panel-section" id="iso-section" style="display:none;">
+      <div class="panel-label">Iso-level</div>
+      <input type="range" id="iso-slider" class="iso-slider" min="0" max="1" step="0.001" value="0">
+      <input type="number" id="iso-input" class="sc-input" style="width:100%;" step="any" value="0">
+    </div>
+    <div class="panel-section">
+      <div class="panel-label panel-label-toggle" id="atoms-toggle">Atoms &#x25B6;</div>
+      <div id="atoms-props" class="props-list" style="display:none;"></div>
+    </div>
+    <div class="panel-section">
+      <div class="panel-label panel-label-toggle" id="bonds-toggle">Bonds &#x25B6;</div>
+      <div id="bonds-props" class="props-list" style="display:none;"></div>
     </div>
   </div>
 

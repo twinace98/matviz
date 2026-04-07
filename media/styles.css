@@ -17,6 +17,50 @@ html, body {
   height: 100%;
 }
 
+/* ===== Mode toolbar (far left) ===== */
+#mode-bar {
+  position: absolute;
+  top: 46px;
+  left: 0;
+  width: 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px 4px;
+  background: var(--vscode-editorWidget-background, rgba(30, 30, 30, 0.92));
+  border-right: 1px solid var(--vscode-editorWidget-border, #444);
+  border-bottom: 1px solid var(--vscode-editorWidget-border, #444);
+  border-radius: 0 0 4px 0;
+  z-index: 11;
+}
+
+.mode-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  background: transparent;
+  color: var(--vscode-descriptionForeground, #888);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 0;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.mode-btn:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(90, 93, 94, 0.31));
+  color: var(--vscode-editor-foreground, #ccc);
+}
+
+.mode-btn.active {
+  background: var(--vscode-toolbar-activeBackground, rgba(99, 102, 103, 0.5));
+  color: var(--vscode-editor-foreground, #ccc);
+  border-color: var(--vscode-focusBorder, #007fd4);
+}
+
 /* ===== Top toolbar (VESTA-style) ===== */
 #top-bar {
   position: absolute;
@@ -25,12 +69,12 @@ html, body {
   right: 0;
   display: flex;
   align-items: center;
-  gap: 2px;
-  padding: 3px 6px;
+  gap: 3px;
+  padding: 5px 9px;
   background: var(--vscode-editorWidget-background, rgba(30, 30, 30, 0.92));
   border-bottom: 1px solid var(--vscode-editorWidget-border, #444);
   font-family: var(--vscode-font-family, monospace);
-  font-size: 11px;
+  font-size: 14px;
   color: var(--vscode-editor-foreground, #ccc);
   z-index: 10;
 }
@@ -38,28 +82,28 @@ html, body {
 .bar-group {
   display: flex;
   align-items: center;
-  gap: 1px;
+  gap: 2px;
 }
 
 .bar-sep {
   width: 1px;
-  height: 20px;
+  height: 28px;
   background: var(--vscode-editorWidget-border, #555);
-  margin: 0 4px;
+  margin: 0 6px;
 }
 
 .bar-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 26px;
-  height: 24px;
-  padding: 0 5px;
+  min-width: 34px;
+  height: 32px;
+  padding: 0 7px;
   background: transparent;
   color: var(--vscode-editor-foreground, #ccc);
   border: 1px solid transparent;
-  border-radius: 3px;
-  font-size: 13px;
+  border-radius: 4px;
+  font-size: 16px;
   cursor: pointer;
   font-family: inherit;
 }
@@ -75,69 +119,88 @@ html, body {
 
 .axis-btn {
   font-weight: bold;
-  font-size: 12px;
-  min-width: 22px;
+  font-size: 15px;
+  min-width: 30px;
 }
 
 .bar-label {
   display: flex;
   align-items: center;
-  gap: 3px;
-  font-size: 11px;
+  gap: 4px;
+  font-size: 14px;
   color: var(--vscode-descriptionForeground, #888);
-  margin-left: 4px;
+  margin-left: 6px;
 }
 
 .bar-input {
-  width: 40px;
-  height: 20px;
-  padding: 1px 3px;
+  width: 52px;
+  height: 28px;
+  padding: 2px 4px;
   background: var(--vscode-input-background, #3c3c3c);
   color: var(--vscode-input-foreground, #ccc);
   border: 1px solid var(--vscode-input-border, #555);
-  border-radius: 2px;
-  font-size: 11px;
+  border-radius: 3px;
+  font-size: 14px;
   text-align: center;
 }
 
 /* ===== Left side panel ===== */
 #side-panel {
   position: absolute;
-  top: 32px;
-  left: 0;
-  width: 140px;
+  top: 46px;
+  left: 40px;
+  width: 200px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 6px;
+  gap: 3px;
+  padding: 9px;
   background: var(--vscode-editorWidget-background, rgba(30, 30, 30, 0.88));
   border-right: 1px solid var(--vscode-editorWidget-border, #444);
   border-bottom: 1px solid var(--vscode-editorWidget-border, #444);
   border-radius: 0 0 6px 0;
   font-family: var(--vscode-font-family, monospace);
-  font-size: 11px;
+  font-size: 14px;
   color: var(--vscode-editor-foreground, #ccc);
   z-index: 9;
+  max-height: calc(100vh - 46px);
+  overflow-y: auto;
+}
+
+/* Drag handle on right edge of side panel */
+#panel-resize {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  width: 8px;
+  height: 100%;
+  cursor: ew-resize;
+  z-index: 12;
+}
+
+#panel-resize:hover,
+#panel-resize.dragging {
+  background: var(--vscode-focusBorder, #007fd4);
+  opacity: 0.5;
 }
 
 #info {
-  font-size: 10px;
+  font-size: 13px;
   opacity: 0.7;
-  padding-bottom: 4px;
+  padding-bottom: 6px;
   border-bottom: 1px solid var(--vscode-editorWidget-border, #333);
-  margin-bottom: 2px;
+  margin-bottom: 3px;
   word-break: break-all;
 }
 
 .panel-section {
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  padding: 3px 0;
+  gap: 4px;
+  padding: 4px 0;
 }
 
 .panel-label {
-  font-size: 10px;
+  font-size: 13px;
   text-transform: uppercase;
   color: var(--vscode-descriptionForeground, #888);
   letter-spacing: 0.5px;
@@ -145,23 +208,23 @@ html, body {
 
 .panel-select {
   width: 100%;
-  padding: 3px 4px;
+  padding: 5px 6px;
   background: var(--vscode-input-background, #3c3c3c);
   color: var(--vscode-input-foreground, #ccc);
   border: 1px solid var(--vscode-input-border, #555);
-  border-radius: 3px;
-  font-size: 11px;
+  border-radius: 4px;
+  font-size: 14px;
   cursor: pointer;
 }
 
 .panel-btn {
   width: 100%;
-  padding: 3px 6px;
+  padding: 5px 9px;
   background: var(--vscode-button-secondaryBackground, #3c3c3c);
   color: var(--vscode-button-secondaryForeground, #ccc);
   border: 1px solid var(--vscode-editorWidget-border, #444);
-  border-radius: 3px;
-  font-size: 11px;
+  border-radius: 4px;
+  font-size: 14px;
   cursor: pointer;
   text-align: center;
 }
@@ -177,37 +240,137 @@ html, body {
 .toggle-group {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
 }
 
 .toggle {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 7px;
   cursor: pointer;
-  font-size: 11px;
+  font-size: 14px;
 }
 
 .toggle input[type="checkbox"] {
   accent-color: var(--vscode-focusBorder, #007fd4);
   margin: 0;
+  width: 16px;
+  height: 16px;
 }
 
 .sc-row {
   display: flex;
-  gap: 3px;
+  gap: 4px;
 }
 
 .sc-input {
   flex: 1;
   width: 0;
-  padding: 3px 2px;
+  padding: 5px 3px;
   background: var(--vscode-input-background, #3c3c3c);
   color: var(--vscode-input-foreground, #ccc);
   border: 1px solid var(--vscode-input-border, #555);
-  border-radius: 2px;
-  font-size: 11px;
+  border-radius: 3px;
+  font-size: 14px;
   text-align: center;
+}
+
+/* ===== Properties panels ===== */
+.panel-label-toggle {
+  cursor: pointer;
+  user-select: none;
+}
+
+.panel-label-toggle:hover {
+  color: var(--vscode-editor-foreground, #ccc);
+}
+
+.props-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.prop-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.prop-color {
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--vscode-editorWidget-border, #555);
+  border-radius: 3px;
+  padding: 0;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  background: none;
+}
+
+.prop-color::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.prop-color::-webkit-color-swatch {
+  border: none;
+  border-radius: 2px;
+}
+
+.prop-label {
+  flex: 1;
+  font-size: 13px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.prop-slider {
+  width: 56px;
+  height: 16px;
+  accent-color: var(--vscode-focusBorder, #007fd4);
+}
+
+.prop-vis {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--vscode-focusBorder, #007fd4);
+}
+
+.bond-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.bond-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bond-input {
+  width: 50px;
+  height: 26px;
+  padding: 2px 3px;
+  background: var(--vscode-input-background, #3c3c3c);
+  color: var(--vscode-input-foreground, #ccc);
+  border: 1px solid var(--vscode-input-border, #555);
+  border-radius: 3px;
+  font-size: 13px;
+  text-align: center;
+}
+
+.iso-slider {
+  width: 100%;
+  height: 18px;
+  accent-color: var(--vscode-focusBorder, #007fd4);
 }
 
 /* ===== Tooltip ===== */
@@ -215,12 +378,12 @@ html, body {
   position: absolute;
   background: var(--vscode-editorWidget-background, rgba(30, 30, 30, 0.92));
   border: 1px solid var(--vscode-editorWidget-border, #444);
-  border-radius: 4px;
-  padding: 6px 10px;
+  border-radius: 5px;
+  padding: 9px 14px;
   font-family: var(--vscode-font-family, monospace);
-  font-size: 11px;
+  font-size: 14px;
   color: var(--vscode-editor-foreground, #ccc);
   pointer-events: none;
   z-index: 20;
-  max-width: 300px;
+  max-width: 400px;
 }

@@ -22,6 +22,30 @@ window.addEventListener('resize', sizeCanvas);
 
 const renderer = new CrystalRenderer(canvas);
 
+// --- Side panel resize ---
+const sidePanel = document.getElementById('side-panel') as HTMLDivElement;
+const panelResize = document.getElementById('panel-resize') as HTMLDivElement;
+const MODE_BAR_WIDTH = 40;
+
+if (panelResize && sidePanel) {
+  let resizing = false;
+  panelResize.addEventListener('pointerdown', (e) => {
+    resizing = true;
+    panelResize.classList.add('dragging');
+    panelResize.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+  window.addEventListener('pointermove', (e) => {
+    if (!resizing) return;
+    const newWidth = Math.max(140, Math.min(400, e.clientX - MODE_BAR_WIDTH));
+    sidePanel.style.width = newWidth + 'px';
+  });
+  window.addEventListener('pointerup', () => {
+    resizing = false;
+    panelResize.classList.remove('dragging');
+  });
+}
+
 // --- Side panel controls ---
 
 // Supercell
@@ -52,14 +76,50 @@ if (cameraBtn) {
   });
 }
 
+// Palette toggle (top bar icon)
+const paletteBtn = document.getElementById('palette-toggle') as HTMLButtonElement;
+if (paletteBtn) {
+  paletteBtn.addEventListener('click', () => {
+    const next = renderer.getColorPalette() === 'dark' ? 'light' : 'dark';
+    renderer.setColorPalette(next);
+    paletteBtn.textContent = next === 'dark' ? '\u263E' : '\u2600';
+    paletteBtn.title = next === 'dark' ? 'Color palette: Dark' : 'Color palette: Light';
+    paletteBtn.classList.toggle('active', next === 'dark');
+  });
+}
+
 // Visibility checkboxes
 const bondsCheck = document.getElementById('bonds-check') as HTMLInputElement;
 const labelsCheck = document.getElementById('labels-check') as HTMLInputElement;
 const polyCheck = document.getElementById('poly-check') as HTMLInputElement;
 
+const boundaryCheck = document.getElementById('boundary-check') as HTMLInputElement;
+
 if (bondsCheck) bondsCheck.addEventListener('change', () => renderer.toggleBonds());
 if (labelsCheck) labelsCheck.addEventListener('change', () => renderer.toggleLabels());
 if (polyCheck) polyCheck.addEventListener('change', () => renderer.togglePolyhedra());
+const celldashCheck = document.getElementById('celldash-check') as HTMLInputElement;
+
+if (boundaryCheck) boundaryCheck.addEventListener('change', () => renderer.toggleBoundaryAtoms());
+if (celldashCheck) celldashCheck.addEventListener('change', () => renderer.toggleCellDash());
+
+// Axis indicator size
+const axisSizeSlider = document.getElementById('axis-size') as HTMLInputElement;
+if (axisSizeSlider) axisSizeSlider.addEventListener('input', () => renderer.setAxisIndicatorSize(parseInt(axisSizeSlider.value)));
+
+// --- Mode bar ---
+const modeNavigate = document.getElementById('mode-navigate') as HTMLButtonElement;
+const modeMeasure = document.getElementById('mode-measure') as HTMLButtonElement;
+
+function setMode(mode: 'navigate' | 'measure') {
+  renderer.setInteractionMode(mode);
+  modeNavigate.classList.toggle('active', mode === 'navigate');
+  modeMeasure.classList.toggle('active', mode === 'measure');
+  tooltip.style.display = 'none';
+}
+
+if (modeNavigate) modeNavigate.addEventListener('click', () => setMode('navigate'));
+if (modeMeasure) modeMeasure.addEventListener('click', () => setMode('measure'));
 
 // --- Top bar controls ---
 
@@ -116,6 +176,14 @@ if (screenshotBtn) {
   });
 }
 
+// Open as text
+const textToggle = document.getElementById('text-toggle') as HTMLButtonElement;
+if (textToggle) {
+  textToggle.addEventListener('click', () => {
+    vscode.postMessage({ type: 'openAsText' });
+  });
+}
+
 // --- Keyboard controls ---
 window.addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
@@ -139,7 +207,7 @@ window.addEventListener('keydown', (e) => {
 renderer.setAtomSelectCallback((data) => {
   if (data) {
     tooltip.style.display = 'block';
-    tooltip.style.left = '150px';
+    tooltip.style.left = '250px';
     tooltip.style.bottom = '8px';
     tooltip.style.top = 'auto';
     const f = data.fractional;
@@ -184,11 +252,111 @@ if (savedState) {
     cameraBtn.textContent = savedState.cameraMode === 'orthographic' ? 'Ortho' : 'Persp';
     cameraBtn.classList.toggle('active', savedState.cameraMode === 'orthographic');
   }
+  if (paletteBtn && savedState.colorPalette) {
+    paletteBtn.textContent = savedState.colorPalette === 'dark' ? '\u263E' : '\u2600';
+    paletteBtn.title = savedState.colorPalette === 'dark' ? 'Color palette: Dark' : 'Color palette: Light';
+    paletteBtn.classList.toggle('active', savedState.colorPalette === 'dark');
+  }
 }
 
 function debounce(fn: () => void, ms: number): () => void {
   let timer: number;
   return () => { clearTimeout(timer); timer = window.setTimeout(fn, ms); };
+}
+
+// --- Properties panel ---
+const atomsToggle = document.getElementById('atoms-toggle')!;
+const atomsProps = document.getElementById('atoms-props')!;
+const bondsToggleBtn = document.getElementById('bonds-toggle')!;
+const bondsProps = document.getElementById('bonds-props')!;
+
+function initTogglePanel(toggle: HTMLElement, content: HTMLElement, label: string) {
+  toggle.addEventListener('click', () => {
+    const open = content.style.display !== 'none';
+    content.style.display = open ? 'none' : 'flex';
+    toggle.innerHTML = open ? `${label} &#x25B6;` : `${label} &#x25BC;`;
+  });
+}
+initTogglePanel(atomsToggle, atomsProps, 'Atoms');
+initTogglePanel(bondsToggleBtn, bondsProps, 'Bonds');
+
+function buildAtomPropsUI() {
+  atomsProps.innerHTML = '';
+  const elements = renderer.getElements();
+  for (const el of elements) {
+    const row = document.createElement('div');
+    row.className = 'prop-row';
+
+    const colorInput = document.createElement('input');
+    colorInput.type = 'color';
+    colorInput.className = 'prop-color';
+    colorInput.value = renderer.getElementColor(el);
+    colorInput.addEventListener('input', () => renderer.setElementColor(el, colorInput.value));
+
+    const label = document.createElement('span');
+    label.className = 'prop-label';
+    label.textContent = el;
+
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.className = 'prop-slider';
+    slider.min = '0.1';
+    slider.max = '1.5';
+    slider.step = '0.05';
+    slider.value = String(renderer.getElementRadius(el));
+    slider.addEventListener('input', () => renderer.setElementRadius(el, parseFloat(slider.value)));
+
+    const vis = document.createElement('input');
+    vis.type = 'checkbox';
+    vis.className = 'prop-vis';
+    vis.checked = renderer.getElementVisibility(el);
+    vis.addEventListener('change', () => renderer.setElementVisibility(el, vis.checked));
+
+    row.append(colorInput, label, slider, vis);
+    atomsProps.appendChild(row);
+  }
+}
+
+function buildBondPropsUI() {
+  bondsProps.innerHTML = '';
+  const pairs = renderer.getBondPairs();
+  for (const { pair, min, max, enabled } of pairs) {
+    const row = document.createElement('div');
+    row.className = 'bond-row';
+
+    const vis = document.createElement('input');
+    vis.type = 'checkbox';
+    vis.className = 'prop-vis';
+    vis.checked = enabled;
+    vis.addEventListener('change', () => renderer.setBondPairEnabled(pair, vis.checked));
+
+    const label = document.createElement('span');
+    label.className = 'bond-label';
+    label.textContent = pair;
+
+    const minInput = document.createElement('input');
+    minInput.type = 'number';
+    minInput.className = 'bond-input';
+    minInput.value = min.toFixed(2);
+    minInput.step = '0.05';
+    minInput.title = 'min';
+
+    const maxInput = document.createElement('input');
+    maxInput.type = 'number';
+    maxInput.className = 'bond-input';
+    maxInput.value = max.toFixed(2);
+    maxInput.step = '0.05';
+    maxInput.title = 'max';
+
+    const update = () => {
+      renderer.updateBondCutoff(pair, parseFloat(minInput.value) || 0, parseFloat(maxInput.value) || 0);
+    };
+    minInput.addEventListener('change', update);
+    maxInput.addEventListener('change', update);
+
+    row.append(vis, label, minInput, maxInput);
+    bondsProps.appendChild(row);
+  }
 }
 
 // --- Extension messages ---
@@ -207,6 +375,8 @@ window.addEventListener('message', (event) => {
       } else {
         info.textContent = `${msg.data.species.length} atoms | ${msg.data.title || ''}`;
       }
+      buildAtomPropsUI();
+      buildBondPropsUI();
       break;
     }
     case 'resetCamera': renderer.resetCamera(); break;
@@ -215,7 +385,39 @@ window.addEventListener('message', (event) => {
     case 'viewNormalToPlane': renderer.viewNormalToPlane(msg.hkl); break;
     case 'addLatticePlane': renderer.addLatticePlane(msg.hkl, msg.distance); break;
     case 'clearLatticePlanes': renderer.clearLatticePlanes(); break;
-    case 'loadVolumetric': renderer.loadVolumetric(msg.data); break;
+    case 'loadVolumetric': {
+      renderer.loadVolumetric(msg.data);
+      const isoSection = document.getElementById('iso-section')!;
+      const isoSlider = document.getElementById('iso-slider') as HTMLInputElement;
+      const isoInput = document.getElementById('iso-input') as HTMLInputElement;
+      const range = renderer.getIsoRange();
+      if (range) {
+        isoSection.style.display = '';
+        isoSlider.min = '0';
+        isoSlider.max = String(range.max);
+        isoSlider.step = String(range.max / 200);
+        isoSlider.value = String(renderer.getIsoLevel());
+        isoInput.value = renderer.getIsoLevel().toExponential(3);
+        // Replace elements to clear old listeners
+        const newSlider = isoSlider.cloneNode(true) as HTMLInputElement;
+        isoSlider.replaceWith(newSlider);
+        const newInput = isoInput.cloneNode(true) as HTMLInputElement;
+        isoInput.replaceWith(newInput);
+        newSlider.addEventListener('input', () => {
+          const level = parseFloat(newSlider.value);
+          renderer.setIsoLevel(level);
+          newInput.value = level.toExponential(3);
+        });
+        newInput.addEventListener('change', () => {
+          const level = parseFloat(newInput.value);
+          if (!isNaN(level) && level >= 0) {
+            renderer.setIsoLevel(level);
+            newSlider.value = String(level);
+          }
+        });
+      }
+      break;
+    }
   }
 });
 

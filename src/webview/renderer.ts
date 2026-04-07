@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { CrystalStructure } from '../parsers/types';
-import { getWebElement } from './elements-data';
+import { getWebElement, getElementPaletteColor, getPaletteLineColors } from './elements-data';
+import type { ColorPalette } from './elements-data';
 import type { DisplayStyle, CameraMode, BondStyle } from './message';
 import { marchingCubes } from './marchingCubes';
 import type { VolumetricData } from '../parsers/types';
@@ -15,6 +16,7 @@ interface BondInfo {
 interface BondParams {
   min: number;
   max: number;
+  enabled: boolean;
 }
 
 interface MeasurementObj {
@@ -48,8 +50,17 @@ export class CrystalRenderer {
   private showBonds = true;
   private showLabels = false;
   private showPolyhedra = false;
+  private showBoundaryAtoms = false;
+  private showCellDash = true;
   private displayStyle: DisplayStyle = 'ball-and-stick';
   private bondStyle: BondStyle = 'bicolor';
+  private interactionMode: 'navigate' | 'measure' = 'navigate';
+
+  // Per-element user overrides
+  private elementColorOverrides = new Map<string, string>();
+  private elementRadiusOverrides = new Map<string, number>();
+  private elementVisibility = new Map<string, boolean>();
+  private colorPalette: ColorPalette = 'dark';
 
   // On-demand rendering
   private renderRequested = false;
@@ -64,6 +75,7 @@ export class CrystalRenderer {
   // Cached expanded data
   private expandedSpecies: string[] = [];
   private expandedPositions: [number, number, number][] = [];
+  private expandedUnitCellIndex: number[] = []; // maps expanded atom → unit cell atom index
   private cachedBonds: BondInfo[] = [];
 
   // Per-pair bond parameters
@@ -83,7 +95,14 @@ export class CrystalRenderer {
   private onMeasurement: ((data: { type: 'distance' | 'angle' | 'dihedral'; value: number; atoms: number[] }) => void) | null = null;
 
   // Atom index mapping: which InstancedMesh corresponds to which atom range
-  private atomMeshMap: { mesh: THREE.InstancedMesh; globalIndices: number[] }[] = [];
+  private atomMeshMap: { mesh: THREE.InstancedMesh; globalIndices: number[]; baseColor: THREE.Color }[] = [];
+  private static readonly HIGHLIGHT_COLOR = new THREE.Color(0x00ffff);
+
+  // Axis indicator (bottom-left inset)
+  private axisScene = new THREE.Scene();
+  private axisCamera = new THREE.OrthographicCamera(-2, 2, 2, -2, 0.1, 10);
+  private axisArrows: THREE.Group = new THREE.Group();
+  private axisInsetSize = 300;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -118,19 +137,26 @@ export class CrystalRenderer {
     this.scene.add(ambient, dir1, dir2);
 
     this.scene.add(this.atomGroup, this.bondGroup, this.cellGroup, this.labelGroup, this.polyhedraGroup, this.measureGroup, this.planeGroup, this.isoGroup);
+    this.labelGroup.renderOrder = 999;
     this.labelGroup.visible = false;
     this.polyhedraGroup.visible = false;
 
     this.controls = new OrbitControls(this.activeCamera, canvas);
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.1;
+    this.controls.enableRotate = false; // We handle rotation ourselves (quaternion-based)
     this.controls.addEventListener('change', () => this.requestRender());
+
+    this.initAxisIndicator();
 
     const ro = new ResizeObserver(() => this.onResize());
     ro.observe(canvas.parentElement || canvas);
 
     // Click handler for picking
     canvas.addEventListener('click', (e) => this.onCanvasClick(e));
+
+    // Quaternion-based free rotation (no gimbal lock) + constrained rotation
+    this.initFreeRotation(canvas);
 
     this.requestRender();
   }
@@ -142,6 +168,7 @@ export class CrystalRenderer {
     this.bondParams.clear();
     this.selectedAtoms = [];
     this.clearMeasurements();
+    this.updateAxisIndicator();
     this.rebuild();
   }
 
@@ -156,6 +183,10 @@ export class CrystalRenderer {
 
   toggleBonds() {
     this.showBonds = !this.showBonds;
+    if (this.showBonds && this.bondGroup.children.length === 0 && this.cachedBonds.length > 0) {
+      this.buildVisuals();
+      return;
+    }
     this.bondGroup.visible = this.showBonds && this.displayStyle !== 'space-filling';
     this.requestRender();
   }
@@ -206,6 +237,33 @@ export class CrystalRenderer {
     this.requestRender();
   }
 
+  toggleBoundaryAtoms() {
+    this.showBoundaryAtoms = !this.showBoundaryAtoms;
+    if (this.structure) this.rebuild(false);
+  }
+
+  getShowBoundaryAtoms(): boolean { return this.showBoundaryAtoms; }
+
+  toggleCellDash() {
+    this.showCellDash = !this.showCellDash;
+    // Find and toggle visibility of dashed line objects in cellGroup
+    for (const child of this.cellGroup.children) {
+      if ((child as THREE.LineSegments).material instanceof THREE.LineDashedMaterial) {
+        child.visible = this.showCellDash;
+      }
+    }
+    this.requestRender();
+  }
+
+  getShowCellDash(): boolean { return this.showCellDash; }
+
+  setAxisIndicatorSize(size: number) {
+    this.axisInsetSize = Math.max(60, Math.min(400, size));
+    this.requestRender();
+  }
+
+  getAxisIndicatorSize(): number { return this.axisInsetSize; }
+
   setBondStyle(style: BondStyle) {
     if (style === this.bondStyle) return;
     this.bondStyle = style;
@@ -213,7 +271,8 @@ export class CrystalRenderer {
   }
 
   updateBondCutoff(pair: string, min: number, max: number) {
-    this.bondParams.set(pair, { min, max });
+    const existing = this.bondParams.get(pair);
+    this.bondParams.set(pair, { min, max, enabled: existing?.enabled !== false });
     if (this.structure) {
       this.cachedBonds = this.detectBonds(this.expandedSpecies, this.expandedPositions);
       this.buildVisuals();
@@ -222,12 +281,82 @@ export class CrystalRenderer {
 
   getBondParams(): Map<string, BondParams> { return this.bondParams; }
 
+  setBondPairEnabled(pair: string, enabled: boolean) {
+    const params = this.bondParams.get(pair);
+    if (params) {
+      params.enabled = enabled;
+      if (this.structure) {
+        this.cachedBonds = this.detectBonds(this.expandedSpecies, this.expandedPositions);
+        this.buildVisuals();
+      }
+    }
+  }
+
+  // --- Element property overrides ---
+
+  setElementColor(element: string, color: string) {
+    this.elementColorOverrides.set(element, color);
+    this.materialCache.clear();
+    if (this.structure) this.buildVisuals();
+  }
+
+  setElementRadius(element: string, radius: number) {
+    this.elementRadiusOverrides.set(element, radius);
+    if (this.structure) this.buildVisuals();
+  }
+
+  setElementVisibility(element: string, visible: boolean) {
+    this.elementVisibility.set(element, visible);
+    if (this.structure) this.buildVisuals();
+  }
+
+  getElementColor(element: string): string {
+    return this.elementColorOverrides.get(element) || getElementPaletteColor(element, this.colorPalette);
+  }
+
+  getElementRadius(element: string): number {
+    return this.elementRadiusOverrides.get(element) || getWebElement(element).displayRadius;
+  }
+
+  getElementVisibility(element: string): boolean {
+    return this.elementVisibility.get(element) !== false;
+  }
+
+  /** Returns the unique elements present in the current structure */
+  getElements(): string[] {
+    if (!this.structure) return [];
+    return [...new Set(this.structure.species)];
+  }
+
+  /** Returns all bond pairs with their current parameters */
+  getBondPairs(): { pair: string; min: number; max: number; enabled: boolean }[] {
+    const result: { pair: string; min: number; max: number; enabled: boolean }[] = [];
+    for (const [pair, params] of this.bondParams) {
+      result.push({ pair, min: params.min, max: params.max, enabled: params.enabled });
+    }
+    return result;
+  }
+
   updateTheme() {
     const bg = this.getBackgroundColor();
     if (this.scene.fog instanceof THREE.FogExp2) {
       this.scene.fog.color.setHex(bg);
     }
     this.requestRender();
+  }
+
+  setColorPalette(palette: ColorPalette) {
+    if (palette === this.colorPalette) return;
+    this.colorPalette = palette;
+    if (this.structure) {
+      this.rebuild(false);
+    }
+    if (this.volumetricData) this.buildIsosurface();
+    this.requestRender();
+  }
+
+  getColorPalette(): ColorPalette {
+    return this.colorPalette;
   }
 
   setAtomSelectCallback(cb: typeof this.onAtomSelect) { this.onAtomSelect = cb; }
@@ -245,7 +374,20 @@ export class CrystalRenderer {
 
   clearSelection() {
     this.selectedAtoms = [];
+    this.updateSelectionHighlight();
     this.requestRender();
+  }
+
+  setInteractionMode(mode: 'navigate' | 'measure') {
+    if (mode === this.interactionMode) return;
+    this.interactionMode = mode;
+    this.selectedAtoms = [];
+    this.clearMeasurements();
+    this.updateSelectionHighlight();
+  }
+
+  getInteractionMode(): 'navigate' | 'measure' {
+    return this.interactionMode;
   }
 
   // --- Lattice planes ---
@@ -328,6 +470,18 @@ export class CrystalRenderer {
     this.buildIsosurface();
   }
 
+  getIsoLevel(): number { return this.isoLevel; }
+
+  getIsoRange(): { min: number; max: number } | null {
+    if (!this.volumetricData) return null;
+    let maxVal = 0;
+    for (let i = 0; i < this.volumetricData.data.length; i++) {
+      const v = Math.abs(this.volumetricData.data[i]);
+      if (v > maxVal) maxVal = v;
+    }
+    return { min: 0, max: maxVal };
+  }
+
   private buildIsosurface() {
     this.clearGroup(this.isoGroup);
     if (!this.volumetricData) return;
@@ -343,7 +497,7 @@ export class CrystalRenderer {
         geo.setAttribute('normal', new THREE.BufferAttribute(result.normals, 3));
         this.geometries.push(geo);
         const mat = new THREE.MeshPhongMaterial({
-          color: 0x4444ff,
+          color: this.paletteColors().isoPos,
           transparent: true,
           opacity: 0.6,
           side: THREE.DoubleSide,
@@ -361,7 +515,7 @@ export class CrystalRenderer {
         geo.setAttribute('normal', new THREE.BufferAttribute(result.normals, 3));
         this.geometries.push(geo);
         const mat = new THREE.MeshPhongMaterial({
-          color: 0xff4444,
+          color: this.paletteColors().isoNeg,
           transparent: true,
           opacity: 0.6,
           side: THREE.DoubleSide,
@@ -429,6 +583,7 @@ export class CrystalRenderer {
     cameraPosition: [number, number, number];
     controlsTarget: [number, number, number];
     orthoZoom: number;
+    colorPalette: ColorPalette;
   } {
     const pos = this.activeCamera.position;
     const target = this.controls.target;
@@ -441,6 +596,7 @@ export class CrystalRenderer {
       cameraPosition: [pos.x, pos.y, pos.z],
       controlsTarget: [target.x, target.y, target.z],
       orthoZoom: this.orthoCamera.zoom,
+      colorPalette: this.colorPalette,
     };
   }
 
@@ -449,6 +605,7 @@ export class CrystalRenderer {
     this.showBonds = state.showBonds;
     this.showLabels = state.showLabels;
     this.supercell = state.supercell;
+    if (state.colorPalette) this.colorPalette = state.colorPalette;
 
     if (state.cameraMode !== this.cameraMode) {
       this.setCameraMode(state.cameraMode);
@@ -472,15 +629,16 @@ export class CrystalRenderer {
     const c = new THREE.Vector3(...lat[2]);
 
     let dir: THREE.Vector3;
+    let up: THREE.Vector3;
     switch (axis) {
-      case 'a': dir = a.clone().normalize(); break;
-      case 'b': dir = b.clone().normalize(); break;
-      case 'c': dir = c.clone().normalize(); break;
-      case 'a*': dir = b.clone().cross(c).normalize(); break;
-      case 'b*': dir = c.clone().cross(a).normalize(); break;
-      case 'c*': dir = a.clone().cross(b).normalize(); break;
+      case 'a':  dir = a.clone().normalize();  up = c.clone().normalize(); break;
+      case 'b':  dir = b.clone().normalize();  up = c.clone().normalize(); break;
+      case 'c':  dir = c.clone().normalize();  up = b.clone().normalize(); break;
+      case 'a*': dir = b.clone().cross(c).normalize(); up = c.clone().normalize(); break;
+      case 'b*': dir = c.clone().cross(a).normalize(); up = c.clone().normalize(); break;
+      case 'c*': dir = a.clone().cross(b).normalize(); up = b.clone().normalize(); break;
     }
-    this.animateCameraToDirection(dir);
+    this.animateCameraToDirection(dir, up!);
   }
 
   viewAlongDirection(uvw: [number, number, number]) {
@@ -553,6 +711,91 @@ export class CrystalRenderer {
     this.requestRender();
   }
 
+  // --- Free rotation (quaternion-based, no gimbal lock) ---
+
+  private initFreeRotation(canvas: HTMLCanvasElement) {
+    let dragging = false;
+    let mode: 'free' | 'shift' | 'ctrl' = 'free';
+    let startX = 0;
+    let startY = 0;
+    let lockedAxis: 'x' | 'y' | null = null;
+    const baseRotateSpeed = 0.4; // degrees per pixel at reference distance
+    const referenceDistance = 20; // initial camera distance
+    const getRotateSpeed = () => {
+      const dist = this.activeCamera.position.distanceTo(this.controls.target);
+      return baseRotateSpeed * (referenceDistance / Math.max(dist, 1));
+    };
+
+    canvas.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return; // left click only
+      dragging = true;
+      startX = e.clientX;
+      startY = e.clientY;
+      lockedAxis = null;
+
+      if (e.ctrlKey || e.metaKey) {
+        mode = 'ctrl';
+      } else if (e.shiftKey) {
+        mode = 'shift';
+      } else {
+        mode = 'free';
+      }
+      canvas.setPointerCapture(e.pointerId);
+    });
+
+    canvas.addEventListener('pointermove', (e) => {
+      if (!dragging) return;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      startX = e.clientX;
+      startY = e.clientY;
+
+      const rotateSpeed = getRotateSpeed();
+      if (mode === 'ctrl') {
+        // Ctrl+drag: rotate around screen-Z (roll)
+        this.rotateCamera(dx * rotateSpeed, 'z');
+      } else if (mode === 'shift') {
+        // Shift+drag: lock to single axis
+        if (!lockedAxis && (Math.abs(e.clientX - startX + dx) > 5 || Math.abs(e.clientY - startY + dy) > 5)) {
+          lockedAxis = Math.abs(dx) > Math.abs(dy) ? 'y' : 'x';
+        }
+        if (lockedAxis) {
+          const delta = lockedAxis === 'y' ? dx : dy;
+          this.rotateCamera(delta * rotateSpeed, lockedAxis);
+        }
+      } else {
+        // Free rotation: apply both X and Y rotations via quaternion
+        this.rotateCameraFree(dx * rotateSpeed, dy * rotateSpeed);
+      }
+    });
+
+    const endDrag = () => { dragging = false; lockedAxis = null; };
+    canvas.addEventListener('pointerup', endDrag);
+    canvas.addEventListener('pointercancel', endDrag);
+  }
+
+  /** Quaternion-based free rotation — no gimbal lock */
+  private rotateCameraFree(degreesX: number, degreesY: number) {
+    const target = this.controls.target.clone();
+    const offset = this.activeCamera.position.clone().sub(target);
+
+    // Screen-space axes
+    const right = new THREE.Vector3().setFromMatrixColumn(this.activeCamera.matrix, 0).normalize();
+    const up = new THREE.Vector3().setFromMatrixColumn(this.activeCamera.matrix, 1).normalize();
+
+    const qX = new THREE.Quaternion().setFromAxisAngle(up, -degreesX * Math.PI / 180);
+    const qY = new THREE.Quaternion().setFromAxisAngle(right, -degreesY * Math.PI / 180);
+    const q = qX.multiply(qY);
+
+    offset.applyQuaternion(q);
+    this.activeCamera.up.applyQuaternion(q);
+
+    this.activeCamera.position.copy(target).add(offset);
+    this.activeCamera.lookAt(target);
+    this.controls.update();
+    this.requestRender();
+  }
+
   // Standard orientation: c-axis up, view from a* direction (VESTA default)
   standardOrientation() {
     if (!this.structure) return;
@@ -584,6 +827,86 @@ export class CrystalRenderer {
     this.requestRender();
   }
 
+  // --- Axis indicator ---
+
+  private initAxisIndicator() {
+    this.axisCamera.position.set(0, 0, 5);
+    this.axisCamera.lookAt(0, 0, 0);
+    const light = new THREE.AmbientLight(0xffffff, 1.0);
+    this.axisScene.add(light);
+    this.axisScene.add(this.axisArrows);
+
+    // Build default axes (will be updated when structure loads)
+    this.buildAxisArrows(
+      [1, 0, 0],
+      [0, 1, 0],
+      [0, 0, 1],
+    );
+  }
+
+  private buildAxisArrows(a: number[], b: number[], c: number[]) {
+    // Clear existing
+    while (this.axisArrows.children.length > 0) {
+      this.axisArrows.remove(this.axisArrows.children[0]);
+    }
+
+    const dirs = [
+      { v: new THREE.Vector3(...a).normalize(), color: 0xff3333, label: 'a' },
+      { v: new THREE.Vector3(...b).normalize(), color: 0x33cc33, label: 'b' },
+      { v: new THREE.Vector3(...c).normalize(), color: 0x3377ff, label: 'c' },
+    ];
+
+    for (const { v, color, label } of dirs) {
+      // Arrow shaft (cylinder)
+      const shaftGeo = new THREE.CylinderGeometry(0.04, 0.04, 1.0, 8);
+      shaftGeo.translate(0, 0.5, 0);
+      shaftGeo.rotateX(Math.PI / 2);
+      const shaftMat = new THREE.MeshBasicMaterial({ color });
+      const shaft = new THREE.Mesh(shaftGeo, shaftMat);
+      shaft.lookAt(v);
+      this.axisArrows.add(shaft);
+
+      // Arrow head (cone)
+      const headGeo = new THREE.ConeGeometry(0.1, 0.25, 8);
+      headGeo.translate(0, 0.125, 0);
+      headGeo.rotateX(Math.PI / 2);
+      const headMat = new THREE.MeshBasicMaterial({ color });
+      const head = new THREE.Mesh(headGeo, headMat);
+      head.position.copy(v.clone().multiplyScalar(1.0));
+      head.lookAt(v.clone().multiplyScalar(2));
+      this.axisArrows.add(head);
+
+      // Label
+      const canvas = document.createElement('canvas');
+      canvas.width = 64;
+      canvas.height = 64;
+      const ctx = canvas.getContext('2d')!;
+      ctx.fillStyle = `#${color.toString(16).padStart(6, '0')}`;
+      ctx.font = 'bold 48px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, 32, 32);
+      const tex = new THREE.CanvasTexture(canvas);
+      const spriteMat = new THREE.SpriteMaterial({ map: tex, depthTest: false });
+      const sprite = new THREE.Sprite(spriteMat);
+      sprite.position.copy(v.clone().multiplyScalar(1.4));
+      sprite.scale.set(0.4, 0.4, 1);
+      this.axisArrows.add(sprite);
+    }
+
+    // Origin sphere
+    const originGeo = new THREE.SphereGeometry(0.06, 8, 6);
+    const originMat = new THREE.MeshBasicMaterial({ color: 0xaaaaaa });
+    this.axisArrows.add(new THREE.Mesh(originGeo, originMat));
+  }
+
+  /** Update axis directions when a structure is loaded */
+  private updateAxisIndicator() {
+    if (!this.structure) return;
+    const lat = this.structure.lattice;
+    this.buildAxisArrows(lat[0], lat[1], lat[2]);
+  }
+
   // --- On-demand rendering ---
 
   private requestRender() {
@@ -596,7 +919,31 @@ export class CrystalRenderer {
   private renderFrame() {
     this.renderRequested = false;
     this.controls.update();
+
+    // Main scene (full viewport)
+    this.renderer.setViewport(0, 0, this.canvas.clientWidth, this.canvas.clientHeight);
+    this.renderer.setScissorTest(false);
     this.renderer.render(this.scene, this.activeCamera);
+
+    // Axis indicator (bottom-left inset) — overlay without clearing color buffer
+    const insetSize = this.axisInsetSize;
+    const insetX = 4;
+    const insetY = 4;
+
+    // Sync axis camera orientation with main camera
+    const camDir = this.activeCamera.position.clone().sub(this.controls.target).normalize();
+    this.axisCamera.position.copy(camDir.multiplyScalar(5));
+    this.axisCamera.up.copy(this.activeCamera.up);
+    this.axisCamera.lookAt(0, 0, 0);
+
+    this.renderer.setViewport(insetX, insetY, insetSize, insetSize);
+    this.renderer.setScissorTest(true);
+    this.renderer.setScissor(insetX, insetY, insetSize, insetSize);
+    this.renderer.autoClear = false;
+    this.renderer.clearDepth();
+    this.renderer.render(this.axisScene, this.axisCamera);
+    this.renderer.autoClear = true;
+    this.renderer.setScissorTest(false);
   }
 
   // --- Material cache ---
@@ -653,15 +1000,22 @@ export class CrystalRenderer {
     return 0x1e1e1e;
   }
 
+  /** Get palette-appropriate line colors */
+  private paletteColors() {
+    return getPaletteLineColors(this.colorPalette);
+  }
+
   // --- Camera animation ---
 
-  private animateCameraToDirection(dir: THREE.Vector3) {
+  private animateCameraToDirection(dir: THREE.Vector3, up?: THREE.Vector3) {
     if (this.animating) return;
     this.animating = true;
     const target = this.controls.target.clone();
     const dist = this.activeCamera.position.distanceTo(target);
     const endPos = target.clone().add(dir.clone().multiplyScalar(dist));
     const startPos = this.activeCamera.position.clone();
+    const startUp = this.activeCamera.up.clone();
+    const endUp = up ? up.clone() : startUp.clone();
     const startTime = performance.now();
     const duration = 300;
 
@@ -669,9 +1023,10 @@ export class CrystalRenderer {
       const t = Math.min((performance.now() - startTime) / duration, 1);
       const ease = t * (2 - t);
       this.activeCamera.position.lerpVectors(startPos, endPos, ease);
+      this.activeCamera.up.lerpVectors(startUp, endUp, ease).normalize();
       this.activeCamera.lookAt(target);
       this.controls.update();
-      this.renderer.render(this.scene, this.activeCamera);
+      this.renderFrame();
       if (t < 1) {
         requestAnimationFrame(step);
       } else {
@@ -710,34 +1065,53 @@ export class CrystalRenderer {
     }
 
     if (closestAtomIdx >= 0) {
-      this.selectedAtoms.push(closestAtomIdx);
-
-      // Emit atom info
+      // Emit atom info — report unit cell index and fractional coords within one unit cell
       if (this.onAtomSelect) {
-        const frac = this.cartesianToFractional(this.expandedPositions[closestAtomIdx]);
+        const ucIdx = this.expandedUnitCellIndex[closestAtomIdx] ?? closestAtomIdx;
+        const ucPos = this.structure!.positions[ucIdx];
+        const ucFrac = this.cartesianToFractional(ucPos);
         this.onAtomSelect({
-          index: closestAtomIdx,
+          index: ucIdx,
           element: this.expandedSpecies[closestAtomIdx],
           cartesian: this.expandedPositions[closestAtomIdx],
-          fractional: frac,
+          fractional: ucFrac,
         });
       }
 
-      // Measurements
-      if (this.selectedAtoms.length === 2) {
-        this.addDistanceMeasurement(this.selectedAtoms[0], this.selectedAtoms[1]);
-      } else if (this.selectedAtoms.length === 3) {
-        this.addAngleMeasurement(this.selectedAtoms[0], this.selectedAtoms[1], this.selectedAtoms[2]);
-      } else if (this.selectedAtoms.length >= 4) {
-        this.addDihedralMeasurement(this.selectedAtoms[0], this.selectedAtoms[1], this.selectedAtoms[2], this.selectedAtoms[3]);
-        this.selectedAtoms = [];
+      if (this.interactionMode === 'navigate') {
+        // Navigate mode: single selection, info only
+        this.selectedAtoms = [closestAtomIdx];
+      } else {
+        // Measure mode: accumulate selections for measurements
+        this.selectedAtoms.push(closestAtomIdx);
+        if (this.selectedAtoms.length === 2) {
+          this.addDistanceMeasurement(this.selectedAtoms[0], this.selectedAtoms[1]);
+        } else if (this.selectedAtoms.length === 3) {
+          this.addAngleMeasurement(this.selectedAtoms[0], this.selectedAtoms[1], this.selectedAtoms[2]);
+        } else if (this.selectedAtoms.length >= 4) {
+          this.addDihedralMeasurement(this.selectedAtoms[0], this.selectedAtoms[1], this.selectedAtoms[2], this.selectedAtoms[3]);
+          this.selectedAtoms = [];
+        }
       }
 
+      this.updateSelectionHighlight();
       this.requestRender();
     } else {
       this.selectedAtoms = [];
+      this.updateSelectionHighlight();
       if (this.onAtomSelect) this.onAtomSelect(null);
       this.requestRender();
+    }
+  }
+
+  private updateSelectionHighlight() {
+    const selectedSet = new Set(this.selectedAtoms);
+    for (const entry of this.atomMeshMap) {
+      for (let i = 0; i < entry.globalIndices.length; i++) {
+        const isSelected = selectedSet.has(entry.globalIndices[i]);
+        entry.mesh.setColorAt(i, isSelected ? CrystalRenderer.HIGHLIGHT_COLOR : entry.baseColor);
+      }
+      if (entry.mesh.instanceColor) entry.mesh.instanceColor.needsUpdate = true;
     }
   }
 
@@ -756,10 +1130,11 @@ export class CrystalRenderer {
       [(b[2] * c[0] - b[0] * c[2]) * invDet, (a[0] * c[2] - a[2] * c[0]) * invDet, (a[2] * b[0] - a[0] * b[2]) * invDet],
       [(b[0] * c[1] - b[1] * c[0]) * invDet, (a[1] * c[0] - a[0] * c[1]) * invDet, (a[0] * b[1] - a[1] * b[0]) * invDet],
     ];
+    // Transpose application: f_i = sum_j inv[j][i] * cart[j]
     return [
-      inv[0][0] * pos[0] + inv[0][1] * pos[1] + inv[0][2] * pos[2],
-      inv[1][0] * pos[0] + inv[1][1] * pos[1] + inv[1][2] * pos[2],
-      inv[2][0] * pos[0] + inv[2][1] * pos[1] + inv[2][2] * pos[2],
+      inv[0][0] * pos[0] + inv[1][0] * pos[1] + inv[2][0] * pos[2],
+      inv[0][1] * pos[0] + inv[1][1] * pos[1] + inv[2][1] * pos[2],
+      inv[0][2] * pos[0] + inv[1][2] * pos[1] + inv[2][2] * pos[2],
     ];
   }
 
@@ -859,7 +1234,7 @@ export class CrystalRenderer {
 
   // --- Rebuild ---
 
-  private rebuild() {
+  private rebuild(resetCamera = true) {
     const struct = this.structure!;
     this.disposeResources();
 
@@ -879,7 +1254,7 @@ export class CrystalRenderer {
     // Build visual representation
     this.buildVisuals();
 
-    this.fitCamera();
+    if (resetCamera) this.fitCamera();
     this.requestRender();
   }
 
@@ -892,7 +1267,7 @@ export class CrystalRenderer {
         if (!this.bondParams.has(pair)) {
           const rA = getWebElement(sorted[i]).covalentRadius;
           const rB = getWebElement(sorted[j]).covalentRadius;
-          this.bondParams.set(pair, { min: 0.4, max: (rA + rB) * 1.2 });
+          this.bondParams.set(pair, { min: 0.4, max: (rA + rB) * 1.2, enabled: true });
         }
       }
     }
@@ -939,6 +1314,7 @@ export class CrystalRenderer {
     const [na, nb, nc] = this.supercell;
     const species: string[] = [];
     const positions: [number, number, number][] = [];
+    const unitCellIndex: number[] = [];
 
     for (let ia = 0; ia < na; ia++) {
       for (let ib = 0; ib < nb; ib++) {
@@ -955,11 +1331,109 @@ export class CrystalRenderer {
               struct.positions[j][1] + offset[1],
               struct.positions[j][2] + offset[2],
             ]);
+            unitCellIndex.push(j);
           }
         }
       }
     }
+
+    // Boundary atoms: duplicate atoms on supercell faces/edges/corners
+    if (this.showBoundaryAtoms) {
+      this.addBoundaryAtoms(struct, species, positions, unitCellIndex);
+    }
+
+    this.expandedUnitCellIndex = unitCellIndex;
+
     return { species, positions };
+  }
+
+  /**
+   * VESTA-style boundary atoms.
+   *
+   * expandSupercell places atoms at cell translations (ia, ib, ic) for
+   * ia ∈ [0, na-1]. Boundary atoms are periodic images that sit exactly
+   * on the supercell boundary — they arise when a base atom has a
+   * fractional coordinate near 0 (≈ integer), so its image at ia=na
+   * (or ib=nb, ic=nc) lands on the opposite face.
+   *
+   * Approach: for each base atom whose fractional coord is near 0 in
+   * any axis, add the image at the +N edge for that axis. Only atoms
+   * with frac ≈ 0 get boundary copies; atoms at frac=0.33 etc. are
+   * interior and are never duplicated.
+   */
+  private addBoundaryAtoms(
+    struct: CrystalStructure,
+    species: string[],
+    positions: [number, number, number][],
+    unitCellIndex: number[],
+  ) {
+    const tol = 0.02;
+    const lat = struct.lattice;
+    const [na, nb, nc] = this.supercell;
+
+    // Dedup existing positions
+    const seen = new Set<string>();
+    for (let i = 0; i < positions.length; i++) {
+      const key = `${positions[i][0].toFixed(3)}_${positions[i][1].toFixed(3)}_${positions[i][2].toFixed(3)}`;
+      seen.add(key);
+    }
+
+    for (let j = 0; j < struct.species.length; j++) {
+      const frac = this.cartesianToFractional(struct.positions[j]);
+      let [fx, fy, fz] = frac;
+
+      // Wrap to [0, 1) and check if near 0
+      fx = ((fx % 1) + 1) % 1; if (fx > 1 - 1e-6) fx = 0;
+      fy = ((fy % 1) + 1) % 1; if (fy > 1 - 1e-6) fy = 0;
+      fz = ((fz % 1) + 1) % 1; if (fz > 1 - 1e-6) fz = 0;
+
+      const nearA = fx < tol;
+      const nearB = fy < tol;
+      const nearC = fz < tol;
+
+      if (!nearA && !nearB && !nearC) continue;
+
+      // Generate boundary shifts: for axes where frac ≈ 0, add +N shift
+      // Combined with all supercell copies
+      const aShifts = nearA ? [0, 1] : [0];
+      const bShifts = nearB ? [0, 1] : [0];
+      const cShifts = nearC ? [0, 1] : [0];
+
+      for (let ia = 0; ia < na; ia++) {
+        for (let ib = 0; ib < nb; ib++) {
+          for (let ic = 0; ic < nc; ic++) {
+            for (const da of aShifts) {
+              for (const db of bShifts) {
+                for (const dc of cShifts) {
+                  if (da === 0 && db === 0 && dc === 0) continue; // original, already placed
+
+                  const fa = ia + da + fx;
+                  const fb = ib + db + fy;
+                  const fc = ic + dc + fz;
+
+                  // Boundary image at ia+da=na etc. must stay within [0, N+tol]
+                  if (fa > na + tol || fb > nb + tol || fc > nc + tol) continue;
+
+                  const cart: [number, number, number] = [
+                    fa * lat[0][0] + fb * lat[1][0] + fc * lat[2][0],
+                    fa * lat[0][1] + fb * lat[1][1] + fc * lat[2][1],
+                    fa * lat[0][2] + fb * lat[1][2] + fc * lat[2][2],
+                  ];
+
+                  const key = `${cart[0].toFixed(3)}_${cart[1].toFixed(3)}_${cart[2].toFixed(3)}`;
+                  if (!seen.has(key)) {
+                    seen.add(key);
+                    species.push(struct.species[j]);
+                    positions.push(cart);
+                    unitCellIndex.push(j);
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
   }
 
   // --- Bond detection with spatial hashing + periodic boundary ---
@@ -977,50 +1451,14 @@ export class CrystalRenderer {
 
     const cellSize = maxCutoff;
 
-    // Generate image positions for periodic boundary bonds
-    const allPositions = [...positions];
-    const allSpecies = [...species];
-    const imageOffset = n; // images start at index n
-
-    if (this.structure && this.supercell[0] === 1 && this.supercell[1] === 1 && this.supercell[2] === 1) {
-      const lat = this.structure.lattice;
-      // For atoms near cell boundaries, add periodic images
-      for (let i = 0; i < n; i++) {
-        const frac = this.cartesianToFractional(positions[i]);
-        for (let da = -1; da <= 1; da++) {
-          for (let db = -1; db <= 1; db++) {
-            for (let dc = -1; dc <= 1; dc++) {
-              if (da === 0 && db === 0 && dc === 0) continue;
-              // Only add image if atom is near that boundary
-              const nearA = (da === -1 && frac[0] < maxCutoff / 10) || (da === 1 && frac[0] > 1 - maxCutoff / 10);
-              const nearB = (db === -1 && frac[1] < maxCutoff / 10) || (db === 1 && frac[1] > 1 - maxCutoff / 10);
-              const nearC = (dc === -1 && frac[2] < maxCutoff / 10) || (dc === 1 && frac[2] > 1 - maxCutoff / 10);
-              if (!nearA && da !== 0) continue;
-              if (!nearB && db !== 0) continue;
-              if (!nearC && dc !== 0) continue;
-
-              allPositions.push([
-                positions[i][0] + da * lat[0][0] + db * lat[1][0] + dc * lat[2][0],
-                positions[i][1] + da * lat[0][1] + db * lat[1][1] + dc * lat[2][1],
-                positions[i][2] + da * lat[0][2] + db * lat[1][2] + dc * lat[2][2],
-              ]);
-              allSpecies.push(species[i]);
-            }
-          }
-        }
-      }
-    }
-
-    const totalN = allPositions.length;
-
-    // Build cell list
+    // Build cell list (only real/visible atoms)
     const cellMap = new Map<string, number[]>();
-    const cellIdx: [number, number, number][] = new Array(totalN);
+    const cellIdx: [number, number, number][] = new Array(n);
 
-    for (let i = 0; i < totalN; i++) {
-      const ix = Math.floor(allPositions[i][0] / cellSize);
-      const iy = Math.floor(allPositions[i][1] / cellSize);
-      const iz = Math.floor(allPositions[i][2] / cellSize);
+    for (let i = 0; i < n; i++) {
+      const ix = Math.floor(positions[i][0] / cellSize);
+      const iy = Math.floor(positions[i][1] / cellSize);
+      const iz = Math.floor(positions[i][2] / cellSize);
       cellIdx[i] = [ix, iy, iz];
       const key = `${ix},${iy},${iz}`;
       let list = cellMap.get(key);
@@ -1029,9 +1467,8 @@ export class CrystalRenderer {
     }
 
     const bonds: BondInfo[] = [];
-    const seen = new Set<string>();
 
-    for (let i = 0; i < n; i++) { // only iterate real atoms
+    for (let i = 0; i < n; i++) {
       const [cix, ciy, ciz] = cellIdx[i];
       for (let dx = -1; dx <= 1; dx++) {
         for (let dy = -1; dy <= 1; dy++) {
@@ -1039,27 +1476,19 @@ export class CrystalRenderer {
             const neighbors = cellMap.get(`${cix + dx},${ciy + dy},${ciz + dz}`);
             if (!neighbors) continue;
             for (const j of neighbors) {
-              if (j <= i && j < n) continue; // avoid real-real duplicates
-              if (j >= imageOffset && j < n) continue;
-              const realJ = j < n ? j : (j - imageOffset) % n; // map image back... not exact but close
-              if (j >= imageOffset && realJ === i) continue; // skip self-image
+              if (j <= i) continue;
 
-              const pair = [allSpecies[i], allSpecies[j]].sort().join('-');
+              const pair = [species[i], species[j]].sort().join('-');
               const params = this.bondParams.get(pair);
-              if (!params) continue;
+              if (!params || !params.enabled) continue;
 
-              const px = allPositions[j][0] - allPositions[i][0];
-              const py = allPositions[j][1] - allPositions[i][1];
-              const pz = allPositions[j][2] - allPositions[i][2];
+              const px = positions[j][0] - positions[i][0];
+              const py = positions[j][1] - positions[i][1];
+              const pz = positions[j][2] - positions[i][2];
               const dist = Math.sqrt(px * px + py * py + pz * pz);
 
               if (dist >= params.min && dist <= params.max) {
-                // For image bonds, use real index for i but store image position
-                const bondKey = j < n ? `${Math.min(i, j)}-${Math.max(i, j)}` : `${i}-img${j}`;
-                if (!seen.has(bondKey)) {
-                  seen.add(bondKey);
-                  bonds.push({ i, j: j < n ? j : i, distance: dist }); // map image bonds back to real atoms for visual
-                }
+                bonds.push({ i, j, distance: dist });
               }
             }
           }
@@ -1092,11 +1521,15 @@ export class CrystalRenderer {
     const dummy = new THREE.Object3D();
 
     for (const [element, indices] of groups) {
+      if (this.elementVisibility.get(element) === false) continue;
+
       const elData = getWebElement(element);
+      const color = this.getElementColor(element);
+      const customRadius = this.elementRadiusOverrides.get(element);
       const isWireframe = style === 'wireframe';
       const mat = isWireframe
-        ? this.getWireframeMaterial(elData.color)
-        : this.getMaterial(elData.color, 80);
+        ? this.getWireframeMaterial(color)
+        : this.getMaterial(color, 80);
 
       const mesh = new THREE.InstancedMesh(sphereGeo, mat, indices.length);
 
@@ -1107,9 +1540,9 @@ export class CrystalRenderer {
 
         let r: number;
         switch (style) {
-          case 'space-filling': r = elData.vdwRadius; break;
-          case 'stick': r = bondedAtoms!.has(idx) ? 0.15 : elData.displayRadius; break;
-          default: r = elData.displayRadius; break;
+          case 'space-filling': r = customRadius != null ? customRadius * 3 : elData.vdwRadius; break;
+          case 'stick': r = bondedAtoms!.has(idx) ? 0.15 : (customRadius ?? elData.displayRadius); break;
+          default: r = customRadius ?? elData.displayRadius; break;
         }
 
         dummy.scale.set(r, r, r);
@@ -1117,9 +1550,16 @@ export class CrystalRenderer {
         mesh.setMatrixAt(i, dummy.matrix);
       }
 
+      // Initialize instance colors for selection highlight support
+      const baseCol = new THREE.Color(color);
+      for (let i = 0; i < indices.length; i++) {
+        mesh.setColorAt(i, baseCol);
+      }
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+
       mesh.instanceMatrix.needsUpdate = true;
       this.atomGroup.add(mesh);
-      this.atomMeshMap.push({ mesh, globalIndices: indices });
+      this.atomMeshMap.push({ mesh, globalIndices: indices, baseColor: baseCol });
     }
   }
 
@@ -1139,8 +1579,8 @@ export class CrystalRenderer {
       const mid = from.clone().lerp(to, 0.5);
       const halfLen = bond.distance / 2;
 
-      const colorA = getWebElement(species[bond.i]).color;
-      const colorB = getWebElement(species[bond.j]).color;
+      const colorA = this.getElementColor(species[bond.i]);
+      const colorB = this.getElementColor(species[bond.j]);
 
       if (!bondHalves.has(colorA)) bondHalves.set(colorA, []);
       bondHalves.get(colorA)!.push({ position: from, target: mid, length: halfLen });
@@ -1179,7 +1619,7 @@ export class CrystalRenderer {
     cylGeo.rotateX(Math.PI / 2);
     this.geometries.push(cylGeo);
 
-    const mat = this.getMaterial('#888888', 40);
+    const mat = this.getMaterial(this.paletteColors().bondUnicolor, 40);
     const instMesh = new THREE.InstancedMesh(cylGeo, mat, bonds.length);
     const dummy = new THREE.Object3D();
 
@@ -1206,8 +1646,8 @@ export class CrystalRenderer {
       const from = positions[bond.i];
       const to = positions[bond.j];
       const mid = [(from[0] + to[0]) / 2, (from[1] + to[1]) / 2, (from[2] + to[2]) / 2];
-      const cA = new THREE.Color(getWebElement(species[bond.i]).color);
-      const cB = new THREE.Color(getWebElement(species[bond.j]).color);
+      const cA = new THREE.Color(this.getElementColor(species[bond.i]));
+      const cB = new THREE.Color(this.getElementColor(species[bond.j]));
 
       pts.push(from[0], from[1], from[2], mid[0], mid[1], mid[2]);
       colors.push(cA.r, cA.g, cA.b, cA.r, cA.g, cA.b);
@@ -1329,7 +1769,7 @@ export class CrystalRenderer {
     this.clearGroup(this.labelGroup);
     for (let i = 0; i < this.expandedSpecies.length; i++) {
       const tex = this.getLabelTexture(this.expandedSpecies[i]);
-      const mat = new THREE.SpriteMaterial({ map: tex, depthTest: true, depthWrite: false });
+      const mat = new THREE.SpriteMaterial({ map: tex, depthTest: false, depthWrite: false });
       const sprite = new THREE.Sprite(mat);
       const p = this.expandedPositions[i];
       sprite.position.set(p[0], p[1] + 0.5, p[2]);
@@ -1367,34 +1807,92 @@ export class CrystalRenderer {
     const [a, b, c] = lattice;
     const [na, nb, nc] = this.supercell;
 
-    const sa: [number, number, number] = [a[0] * na, a[1] * na, a[2] * na];
-    const sb: [number, number, number] = [b[0] * nb, b[1] * nb, b[2] * nb];
-    const sc: [number, number, number] = [c[0] * nc, c[1] * nc, c[2] * nc];
-
-    const o = [0, 0, 0];
-    const corners = [
-      o, sa, sb, sc,
-      [sa[0] + sb[0], sa[1] + sb[1], sa[2] + sb[2]],
-      [sa[0] + sc[0], sa[1] + sc[1], sa[2] + sc[2]],
-      [sb[0] + sc[0], sb[1] + sc[1], sb[2] + sc[2]],
-      [sa[0] + sb[0] + sc[0], sa[1] + sb[1] + sc[1], sa[2] + sb[2] + sc[2]],
+    // Helper: compute corner at ia*a + ib*b + ic*c
+    const corner = (ia: number, ib: number, ic: number): [number, number, number] => [
+      ia * a[0] + ib * b[0] + ic * c[0],
+      ia * a[1] + ib * b[1] + ic * c[1],
+      ia * a[2] + ib * b[2] + ic * c[2],
     ];
 
-    const edges = [
+    // Supercell outer boundary (solid lines)
+    const sa = corner(na, 0, 0), sb = corner(0, nb, 0), sc = corner(0, 0, nc);
+    const o = [0, 0, 0];
+    const outerCorners = [
+      o, sa, sb, sc,
+      corner(na, nb, 0), corner(na, 0, nc), corner(0, nb, nc), corner(na, nb, nc),
+    ];
+    const outerEdges = [
       [0, 1], [0, 2], [0, 3], [1, 4], [1, 5], [2, 4], [2, 6],
       [3, 5], [3, 6], [4, 7], [5, 7], [6, 7],
     ];
-
-    const pts: number[] = [];
-    for (const [i, j] of edges) {
-      pts.push(corners[i][0], corners[i][1], corners[i][2]);
-      pts.push(corners[j][0], corners[j][1], corners[j][2]);
+    const outerPts: number[] = [];
+    for (const [i, j] of outerEdges) {
+      outerPts.push(outerCorners[i][0], outerCorners[i][1], outerCorners[i][2]);
+      outerPts.push(outerCorners[j][0], outerCorners[j][1], outerCorners[j][2]);
     }
+    const outerGeo = new THREE.BufferGeometry();
+    outerGeo.setAttribute('position', new THREE.Float32BufferAttribute(outerPts, 3));
+    this.geometries.push(outerGeo);
+    this.cellGroup.add(new THREE.LineSegments(outerGeo, new THREE.LineBasicMaterial({ color: this.paletteColors().line })));
 
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
-    this.geometries.push(geo);
-    this.cellGroup.add(new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: 0x888888, linewidth: 1 })));
+    // Unit cell boundaries as dashed lines (rendered on top of atoms)
+    // For 1x1x1: the outer boundary itself; for supercell: internal slices
+    {
+      const dashPts: THREE.Vector3[] = [];
+
+      // 1x1x1: draw unit cell edges as dashed overlay
+      if (na === 1 && nb === 1 && nc === 1) {
+        for (const [i, j] of outerEdges) {
+          dashPts.push(
+            new THREE.Vector3(outerCorners[i][0], outerCorners[i][1], outerCorners[i][2]),
+            new THREE.Vector3(outerCorners[j][0], outerCorners[j][1], outerCorners[j][2]),
+          );
+        }
+      }
+
+      // Internal slices perpendicular to a
+      for (let ia = 1; ia < na; ia++) {
+        const c00 = corner(ia, 0, 0), c01 = corner(ia, 0, nc);
+        const c10 = corner(ia, nb, 0), c11 = corner(ia, nb, nc);
+        dashPts.push(new THREE.Vector3(...c00), new THREE.Vector3(...c10));
+        dashPts.push(new THREE.Vector3(...c00), new THREE.Vector3(...c01));
+        dashPts.push(new THREE.Vector3(...c10), new THREE.Vector3(...c11));
+        dashPts.push(new THREE.Vector3(...c01), new THREE.Vector3(...c11));
+      }
+      // Internal slices perpendicular to b
+      for (let ib = 1; ib < nb; ib++) {
+        const c00 = corner(0, ib, 0), c01 = corner(0, ib, nc);
+        const c10 = corner(na, ib, 0), c11 = corner(na, ib, nc);
+        dashPts.push(new THREE.Vector3(...c00), new THREE.Vector3(...c10));
+        dashPts.push(new THREE.Vector3(...c00), new THREE.Vector3(...c01));
+        dashPts.push(new THREE.Vector3(...c10), new THREE.Vector3(...c11));
+        dashPts.push(new THREE.Vector3(...c01), new THREE.Vector3(...c11));
+      }
+      // Internal slices perpendicular to c
+      for (let ic = 1; ic < nc; ic++) {
+        const c00 = corner(0, 0, ic), c01 = corner(0, nb, ic);
+        const c10 = corner(na, 0, ic), c11 = corner(na, nb, ic);
+        dashPts.push(new THREE.Vector3(...c00), new THREE.Vector3(...c10));
+        dashPts.push(new THREE.Vector3(...c00), new THREE.Vector3(...c01));
+        dashPts.push(new THREE.Vector3(...c10), new THREE.Vector3(...c11));
+        dashPts.push(new THREE.Vector3(...c01), new THREE.Vector3(...c11));
+      }
+
+      if (dashPts.length > 0) {
+        const dashGeo = new THREE.BufferGeometry().setFromPoints(dashPts);
+        this.geometries.push(dashGeo);
+        const dashMat = new THREE.LineDashedMaterial({
+          color: this.paletteColors().dash,
+          dashSize: 0.3,
+          gapSize: 0.15,
+          depthTest: false,
+        });
+        const dashLines = new THREE.LineSegments(dashGeo, dashMat);
+        dashLines.computeLineDistances();
+        dashLines.renderOrder = 998;
+        this.cellGroup.add(dashLines);
+      }
+    }
   }
 
   // --- Camera ---
@@ -1432,7 +1930,7 @@ export class CrystalRenderer {
     this.perspCamera.lookAt(center);
 
     const aspect = this.canvas.clientWidth / this.canvas.clientHeight;
-    const frustum = maxDim * 1.2;
+    const frustum = maxDim * 2.0;
     this.orthoCamera.left = -frustum * aspect / 2;
     this.orthoCamera.right = frustum * aspect / 2;
     this.orthoCamera.top = frustum / 2;
@@ -1441,6 +1939,18 @@ export class CrystalRenderer {
     this.orthoCamera.updateProjectionMatrix();
     this.orthoCamera.position.copy(camPos);
     this.orthoCamera.lookAt(center);
+
+    // Dynamically adjust clipping planes and fog for large structures
+    const farPlane = Math.max(500, dist * 4);
+    this.perspCamera.far = farPlane;
+    this.perspCamera.updateProjectionMatrix();
+    this.orthoCamera.far = farPlane;
+    this.orthoCamera.updateProjectionMatrix();
+
+    if (this.scene.fog instanceof THREE.FogExp2) {
+      // Scale fog density inversely with scene size so distant atoms remain visible
+      this.scene.fog.density = Math.min(0.015, 3.0 / farPlane);
+    }
 
     this.controls.target.copy(center);
     this.controls.update();
