@@ -2,7 +2,8 @@
   "name": "vscode-matviz",
   "displayName": "MatViz - Crystal Structure Viewer",
   "description": "Interactive 3D crystal structure visualization for CIF, POSCAR, XSF, XYZ, PDB, Gaussian Cube, and more",
-  "version": "0.11.0",
+  "version": "0.12.0",
+  "license": "MIT",
   "publisher": "matviz",
   "engines": {
     "vscode": "^1.85.0"

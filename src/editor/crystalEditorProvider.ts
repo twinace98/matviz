@@ -140,7 +140,7 @@ export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvide
     <button id="mode-measure" class="mode-btn" title="Measure (click 2/3/4 atoms)">&#x2194;</button>
   </div>
 
-  <!-- Top toolbar (VESTA-style) -->
+  <!-- Top toolbar -->
   <div id="top-bar">
     <div class="bar-group" title="Axis Views">
       <button id="view-a" class="bar-btn axis-btn">a</button>
@@ -206,7 +206,7 @@ export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvide
         <label class="toggle"><input type="checkbox" id="bonds-check" checked><span>Bonds</span></label>
         <label class="toggle"><input type="checkbox" id="labels-check"><span>Labels</span></label>
         <label class="toggle"><input type="checkbox" id="poly-check"><span>Polyhedra</span></label>
-        <label class="toggle"><input type="checkbox" id="boundary-check"><span>Boundary</span></label>
+        <label class="toggle"><input type="checkbox" id="boundary-check" checked><span>Boundary</span></label>
         <label class="toggle"><input type="checkbox" id="celldash-check" checked><span>Cell lines</span></label>
       </div>
     </div>

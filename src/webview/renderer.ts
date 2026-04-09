@@ -50,7 +50,7 @@ export class CrystalRenderer {
   private showBonds = true;
   private showLabels = false;
   private showPolyhedra = false;
-  private showBoundaryAtoms = false;
+  private showBoundaryAtoms = true;
   private showCellDash = true;
   private displayStyle: DisplayStyle = 'ball-and-stick';
   private bondStyle: BondStyle = 'bicolor';
@@ -796,7 +796,7 @@ export class CrystalRenderer {
     this.requestRender();
   }
 
-  // Standard orientation: c-axis up, view from a* direction (VESTA default)
+  // Standard orientation: c-axis up, view from a* direction
   standardOrientation() {
     if (!this.structure) return;
     const lat = this.structure.lattice;
@@ -1265,9 +1265,8 @@ export class CrystalRenderer {
       for (let j = i; j < sorted.length; j++) {
         const pair = `${sorted[i]}-${sorted[j]}`;
         if (!this.bondParams.has(pair)) {
-          const rA = getWebElement(sorted[i]).covalentRadius;
-          const rB = getWebElement(sorted[j]).covalentRadius;
-          this.bondParams.set(pair, { min: 0.4, max: (rA + rB) * 1.2, enabled: true });
+          const max = getWebElement(sorted[i]).covalentRadius + getWebElement(sorted[j]).covalentRadius + 0.3;
+          this.bondParams.set(pair, { min: 0.1, max, enabled: true });
         }
       }
     }
@@ -1316,20 +1315,40 @@ export class CrystalRenderer {
     const positions: [number, number, number][] = [];
     const unitCellIndex: number[] = [];
 
+    // When boundary mode is on, wrap fractional coords into [0,1)
+    // so all atoms appear inside the unit cell.
+    const lat = struct.lattice;
+    let basePositions = struct.positions;
+    if (this.showBoundaryAtoms) {
+      basePositions = struct.positions.map(pos => {
+        const frac = this.cartesianToFractional(pos);
+        const wf: [number, number, number] = [
+          ((frac[0] % 1) + 1) % 1,
+          ((frac[1] % 1) + 1) % 1,
+          ((frac[2] % 1) + 1) % 1,
+        ];
+        return [
+          wf[0] * lat[0][0] + wf[1] * lat[1][0] + wf[2] * lat[2][0],
+          wf[0] * lat[0][1] + wf[1] * lat[1][1] + wf[2] * lat[2][1],
+          wf[0] * lat[0][2] + wf[1] * lat[1][2] + wf[2] * lat[2][2],
+        ] as [number, number, number];
+      });
+    }
+
     for (let ia = 0; ia < na; ia++) {
       for (let ib = 0; ib < nb; ib++) {
         for (let ic = 0; ic < nc; ic++) {
           const offset: [number, number, number] = [
-            ia * struct.lattice[0][0] + ib * struct.lattice[1][0] + ic * struct.lattice[2][0],
-            ia * struct.lattice[0][1] + ib * struct.lattice[1][1] + ic * struct.lattice[2][1],
-            ia * struct.lattice[0][2] + ib * struct.lattice[1][2] + ic * struct.lattice[2][2],
+            ia * lat[0][0] + ib * lat[1][0] + ic * lat[2][0],
+            ia * lat[0][1] + ib * lat[1][1] + ic * lat[2][1],
+            ia * lat[0][2] + ib * lat[1][2] + ic * lat[2][2],
           ];
           for (let j = 0; j < struct.species.length; j++) {
             species.push(struct.species[j]);
             positions.push([
-              struct.positions[j][0] + offset[0],
-              struct.positions[j][1] + offset[1],
-              struct.positions[j][2] + offset[2],
+              basePositions[j][0] + offset[0],
+              basePositions[j][1] + offset[1],
+              basePositions[j][2] + offset[2],
             ]);
             unitCellIndex.push(j);
           }
@@ -1348,7 +1367,7 @@ export class CrystalRenderer {
   }
 
   /**
-   * VESTA-style boundary atoms.
+   * Boundary atoms on supercell faces/edges/corners.
    *
    * expandSupercell places atoms at cell translations (ia, ib, ic) for
    * ia ∈ [0, na-1]. Boundary atoms are periodic images that sit exactly
@@ -1509,12 +1528,6 @@ export class CrystalRenderer {
       groups.get(s)!.push(i);
     }
 
-    let bondedAtoms: Set<number> | null = null;
-    if (style === 'stick') {
-      bondedAtoms = new Set<number>();
-      for (const b of bonds) { bondedAtoms.add(b.i); bondedAtoms.add(b.j); }
-    }
-
     const [ws, hs] = this.getSphereSegments(species.length);
     const sphereGeo = new THREE.SphereGeometry(1, ws, hs);
     this.geometries.push(sphereGeo);
@@ -1541,7 +1554,7 @@ export class CrystalRenderer {
         let r: number;
         switch (style) {
           case 'space-filling': r = customRadius != null ? customRadius * 3 : elData.vdwRadius; break;
-          case 'stick': r = bondedAtoms!.has(idx) ? 0.15 : (customRadius ?? elData.displayRadius); break;
+          case 'stick': r = customRadius ?? 0.15; break;
           default: r = customRadius ?? elData.displayRadius; break;
         }
 
@@ -1746,7 +1759,7 @@ export class CrystalRenderer {
     geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
     this.geometries.push(geo);
 
-    const color = new THREE.Color(getWebElement(element).color);
+    const color = new THREE.Color(this.getElementColor(element));
     const mat = new THREE.MeshPhongMaterial({
       color,
       transparent: true,

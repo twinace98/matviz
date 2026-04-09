@@ -312,7 +312,7 @@ function buildAtomPropsUI() {
     vis.checked = renderer.getElementVisibility(el);
     vis.addEventListener('change', () => renderer.setElementVisibility(el, vis.checked));
 
-    row.append(colorInput, label, slider, vis);
+    row.append(vis, label, slider, colorInput);
     atomsProps.appendChild(row);
   }
 }

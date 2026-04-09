@@ -1,6 +1,8 @@
 import { ElementData } from './types';
 
-// CPK/Jmol colors, covalent radii from Cordero et al., vdW from Bondi/Mantina
+// Conventional CPK-derived element colors.
+// Covalent radii: Cordero et al., Dalton Trans. (2008) 2832-2838.
+// vdW radii: Bondi, J. Phys. Chem. 68 (1964) 441; Mantina et al., J. Phys. Chem. A 113 (2009) 5806.
 const ELEMENTS: Record<string, ElementData> = {
   H:  { symbol: 'H',  number: 1,  color: '#FFFFFF', covalentRadius: 0.31, vdwRadius: 1.20 },
   He: { symbol: 'He', number: 2,  color: '#D9FFFF', covalentRadius: 0.28, vdwRadius: 1.40 },

@@ -1,4 +1,7 @@
-// Duplicated element data for webview context (browser bundle, no Node.js imports)
+// Element data for webview context (browser bundle, no Node.js imports).
+// Conventional CPK-derived element colors.
+// Covalent radii: Cordero et al., Dalton Trans. (2008) 2832-2838.
+// vdW radii: Bondi, J. Phys. Chem. 68 (1964) 441; Mantina et al., J. Phys. Chem. A 113 (2009) 5806.
 export interface WebElementData {
   color: string;
   covalentRadius: number;
@@ -118,7 +121,7 @@ function brighten(hex: string): string {
   return '#' + ((1 << 24) + (ro << 16) + (go << 8) + bo).toString(16).slice(1).toUpperCase();
 }
 
-// Build dark palette by brightening the original VESTA colors
+// Build dark palette by brightening the base colors
 const darkPalette: Record<string, string> = {};
 for (const [sym, data] of Object.entries(E)) {
   darkPalette[sym] = brighten(data.color);
@@ -129,7 +132,7 @@ export function getWebElement(symbol: string): WebElementData {
   return E[normalized] || DEFAULT;
 }
 
-/** Get element color for a specific palette. Light = original VESTA, Dark = brightened */
+/** Get element color for a specific palette. Light = base, Dark = brightened */
 export function getElementPaletteColor(symbol: string, palette: ColorPalette): string {
   const normalized = symbol.charAt(0).toUpperCase() + symbol.slice(1).toLowerCase();
   if (palette === 'dark') {
