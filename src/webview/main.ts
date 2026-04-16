@@ -13,17 +13,36 @@ const canvas = document.getElementById('canvas') as HTMLCanvasElement;
 const info = document.getElementById('info') as HTMLDivElement;
 const tooltip = document.getElementById('tooltip') as HTMLDivElement;
 
-function sizeCanvas() {
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
+// --- Adaptive top-bar height ---
+const topBar = document.getElementById('top-bar');
+if (topBar) {
+  const syncTopBarHeight = () => {
+    const h = Math.ceil(topBar.getBoundingClientRect().height);
+    document.documentElement.style.setProperty('--top-bar-h', `${h}px`);
+  };
+  syncTopBarHeight();
+  if (typeof ResizeObserver !== 'undefined') {
+    new ResizeObserver(syncTopBarHeight).observe(topBar);
+  } else {
+    window.addEventListener('resize', syncTopBarHeight);
+  }
 }
-sizeCanvas();
-window.addEventListener('resize', sizeCanvas);
 
 const renderer = new CrystalRenderer(canvas);
 
-// --- Side panel resize ---
+// --- Side panel toggle ---
+const panelToggle = document.getElementById('panel-toggle') as HTMLButtonElement;
 const sidePanel = document.getElementById('side-panel') as HTMLDivElement;
+
+if (panelToggle && sidePanel) {
+  panelToggle.addEventListener('click', () => {
+    const collapsed = sidePanel.classList.toggle('collapsed');
+    panelToggle.innerHTML = collapsed ? '&#x25B6;' : '&#x25C0;';
+    panelToggle.title = collapsed ? 'Show side panel' : 'Hide side panel';
+  });
+}
+
+// --- Side panel resize ---
 const panelResize = document.getElementById('panel-resize') as HTMLDivElement;
 const MODE_BAR_WIDTH = 40;
 

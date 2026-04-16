@@ -124,7 +124,7 @@ export class CrystalRenderer {
 
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
     this.renderer.setPixelRatio(window.devicePixelRatio);
-    this.renderer.setSize(canvas.clientWidth, canvas.clientHeight);
+    this.renderer.setSize(canvas.clientWidth, canvas.clientHeight, false);
 
     const bgColor = this.getBackgroundColor();
     this.scene.fog = new THREE.FogExp2(bgColor, 0.015);
@@ -2013,7 +2013,7 @@ export class CrystalRenderer {
     this.orthoCamera.right = frustumH * aspect / 2;
     this.orthoCamera.updateProjectionMatrix();
 
-    this.renderer.setSize(w, h);
+    this.renderer.setSize(w, h, false);
     this.requestRender();
   }
 }

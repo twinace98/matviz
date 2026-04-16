@@ -138,6 +138,8 @@ export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvide
   <div id="mode-bar">
     <button id="mode-navigate" class="mode-btn active" title="Navigate (click atom for info)">&#x25C7;</button>
     <button id="mode-measure" class="mode-btn" title="Measure (click 2/3/4 atoms)">&#x2194;</button>
+    <div class="mode-sep"></div>
+    <button id="panel-toggle" class="mode-btn" title="Toggle side panel">&#x25C0;</button>
   </div>
 
   <!-- Top toolbar -->

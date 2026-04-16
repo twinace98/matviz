@@ -4,6 +4,10 @@
   box-sizing: border-box;
 }
 
+:root {
+  --top-bar-h: 46px;
+}
+
 html, body {
   width: 100%;
   height: 100%;
@@ -20,7 +24,7 @@ html, body {
 /* ===== Mode toolbar (far left) ===== */
 #mode-bar {
   position: absolute;
-  top: 46px;
+  top: var(--top-bar-h, 46px);
   left: 0;
   width: 40px;
   display: flex;
@@ -61,6 +65,12 @@ html, body {
   border-color: var(--vscode-focusBorder, #007fd4);
 }
 
+.mode-sep {
+  height: 1px;
+  background: var(--vscode-editorWidget-border, #555);
+  margin: 3px 2px;
+}
+
 /* ===== Top toolbar (VESTA-style) ===== */
 #top-bar {
   position: absolute;
@@ -68,7 +78,9 @@ html, body {
   left: 0;
   right: 0;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  row-gap: 4px;
   gap: 3px;
   padding: 5px 9px;
   background: var(--vscode-editorWidget-background, rgba(30, 30, 30, 0.92));
@@ -81,8 +93,10 @@ html, body {
 
 .bar-group {
   display: flex;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 2px;
+  flex-shrink: 0;
 }
 
 .bar-sep {
@@ -90,6 +104,7 @@ html, body {
   height: 28px;
   background: var(--vscode-editorWidget-border, #555);
   margin: 0 6px;
+  flex-shrink: 0;
 }
 
 .bar-btn {
@@ -147,7 +162,7 @@ html, body {
 /* ===== Left side panel ===== */
 #side-panel {
   position: absolute;
-  top: 46px;
+  top: var(--top-bar-h, 46px);
   left: 40px;
   width: 200px;
   display: flex;
@@ -162,8 +177,12 @@ html, body {
   font-size: 14px;
   color: var(--vscode-editor-foreground, #ccc);
   z-index: 9;
-  max-height: calc(100vh - 46px);
+  max-height: calc(100vh - var(--top-bar-h, 46px));
   overflow-y: auto;
+}
+
+#side-panel.collapsed {
+  display: none;
 }
 
 /* Drag handle on right edge of side panel */
