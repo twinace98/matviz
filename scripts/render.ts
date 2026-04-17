@@ -2,6 +2,24 @@ import puppeteer from 'puppeteer';
 import * as fs from 'fs';
 import * as path from 'path';
 import { parseStructureFile } from '../src/parsers/index';
+import { ELEMENTS, DEFAULT_ELEMENT } from '../src/shared/elements-data';
+
+// Compact shape for embedding in the HTML template — preserves the browser-side
+// key aliases (cr/vdw/dr) used by the existing template code.
+const CLI_ELEMENTS = Object.fromEntries(
+  Object.values(ELEMENTS).map(e => [e.symbol, {
+    color: e.color,
+    cr: e.covalentRadius,
+    vdw: e.vdwRadius,
+    dr: e.displayRadius,
+  }])
+);
+const CLI_DEFAULT_EL = {
+  color: DEFAULT_ELEMENT.color,
+  cr: DEFAULT_ELEMENT.covalentRadius,
+  vdw: DEFAULT_ELEMENT.vdwRadius,
+  dr: DEFAULT_ELEMENT.displayRadius,
+};
 
 // ---------------------------------------------------------------------------
 // CLI argument parsing
@@ -198,39 +216,9 @@ const OPTS = ${JSON.stringify({
     plane: opts.plane,
   })};
 
-// --- Element data (CPK colors, covalent radii) ---
-const ELEMENTS = {
-  H:{color:'#FFFFFF',cr:0.31,vdw:1.20,dr:0.30},He:{color:'#D9FFFF',cr:0.28,vdw:1.40,dr:0.30},
-  Li:{color:'#CC80FF',cr:1.28,vdw:1.82,dr:0.50},Be:{color:'#C2FF00',cr:0.96,vdw:1.53,dr:0.38},
-  B:{color:'#FFB5B5',cr:0.84,vdw:1.92,dr:0.35},C:{color:'#909090',cr:0.76,vdw:1.70,dr:0.35},
-  N:{color:'#3050F8',cr:0.71,vdw:1.55,dr:0.35},O:{color:'#FF0D0D',cr:0.66,vdw:1.52,dr:0.35},
-  F:{color:'#90E050',cr:0.57,vdw:1.47,dr:0.32},Ne:{color:'#B3E3F5',cr:0.58,vdw:1.54,dr:0.32},
-  Na:{color:'#AB5CF2',cr:1.66,vdw:2.27,dr:0.60},Mg:{color:'#8AFF00',cr:1.41,vdw:1.73,dr:0.55},
-  Al:{color:'#BFA6A6',cr:1.21,vdw:1.84,dr:0.50},Si:{color:'#F0C8A0',cr:1.11,vdw:2.10,dr:0.45},
-  P:{color:'#FF8000',cr:1.07,vdw:1.80,dr:0.40},S:{color:'#FFFF30',cr:1.05,vdw:1.80,dr:0.40},
-  Cl:{color:'#1FF01F',cr:1.02,vdw:1.75,dr:0.40},Ar:{color:'#80D1E3',cr:1.06,vdw:1.88,dr:0.38},
-  K:{color:'#8F40D4',cr:2.03,vdw:2.75,dr:0.65},Ca:{color:'#3DFF00',cr:1.76,vdw:2.31,dr:0.60},
-  Ti:{color:'#BFC2C7',cr:1.60,vdw:2.11,dr:0.55},V:{color:'#A6A6AB',cr:1.53,vdw:2.07,dr:0.53},
-  Cr:{color:'#8A99C7',cr:1.39,vdw:2.06,dr:0.50},Mn:{color:'#9C7AC7',cr:1.39,vdw:2.05,dr:0.50},
-  Fe:{color:'#E06633',cr:1.32,vdw:2.04,dr:0.50},Co:{color:'#F090A0',cr:1.26,vdw:2.00,dr:0.48},
-  Ni:{color:'#50D050',cr:1.24,vdw:1.97,dr:0.48},Cu:{color:'#C88033',cr:1.32,vdw:1.96,dr:0.48},
-  Zn:{color:'#7D80B0',cr:1.22,vdw:2.01,dr:0.48},Ga:{color:'#C28F8F',cr:1.22,vdw:1.87,dr:0.48},
-  Ge:{color:'#668F8F',cr:1.20,vdw:2.11,dr:0.45},As:{color:'#BD80E3',cr:1.19,vdw:1.85,dr:0.43},
-  Se:{color:'#FFA100',cr:1.20,vdw:1.90,dr:0.43},Br:{color:'#A62929',cr:1.20,vdw:1.85,dr:0.43},
-  Sr:{color:'#00FF00',cr:1.95,vdw:2.49,dr:0.60},Zr:{color:'#94E0E0',cr:1.75,vdw:2.23,dr:0.55},
-  Mo:{color:'#54B5B5',cr:1.54,vdw:2.17,dr:0.53},Ru:{color:'#248F8F',cr:1.46,vdw:2.13,dr:0.50},
-  Pd:{color:'#006985',cr:1.39,vdw:2.02,dr:0.50},Ag:{color:'#C0C0C0',cr:1.45,vdw:2.03,dr:0.52},
-  Cd:{color:'#FFD98F',cr:1.44,vdw:2.18,dr:0.52},In:{color:'#A67573',cr:1.42,vdw:1.93,dr:0.55},
-  Sn:{color:'#668080',cr:1.39,vdw:2.17,dr:0.55},Sb:{color:'#9E63B5',cr:1.39,vdw:2.06,dr:0.53},
-  Te:{color:'#D47A00',cr:1.38,vdw:2.06,dr:0.53},I:{color:'#940094',cr:1.39,vdw:1.98,dr:0.50},
-  Cs:{color:'#57178F',cr:2.44,vdw:3.43,dr:0.70},Ba:{color:'#00C900',cr:2.15,vdw:2.68,dr:0.65},
-  La:{color:'#70D4FF',cr:2.07,vdw:2.43,dr:0.62},Ce:{color:'#FFFFC7',cr:2.04,vdw:2.42,dr:0.62},
-  Gd:{color:'#45FFC7',cr:1.96,vdw:2.38,dr:0.58},W:{color:'#2194D6',cr:1.62,vdw:2.17,dr:0.53},
-  Pt:{color:'#D0D0E0',cr:1.36,vdw:2.02,dr:0.50},Au:{color:'#FFD123',cr:1.36,vdw:2.02,dr:0.50},
-  Pb:{color:'#575961',cr:1.46,vdw:2.02,dr:0.55},Bi:{color:'#9E4FB5',cr:1.48,vdw:2.07,dr:0.55},
-  U:{color:'#008FFF',cr:1.96,vdw:1.86,dr:0.60},
-};
-const DEFAULT_EL = {color:'#FF1493',cr:1.50,vdw:2.00,dr:0.45};
+// --- Element data (generated from src/shared/elements-data.ts) ---
+const ELEMENTS = ${JSON.stringify(CLI_ELEMENTS)};
+const DEFAULT_EL = ${JSON.stringify(CLI_DEFAULT_EL)};
 
 function getEl(sym) {
   const n = sym.charAt(0).toUpperCase() + sym.slice(1).toLowerCase();
@@ -727,68 +715,65 @@ async function render(opts: RenderOptions) {
     ],
   });
 
-  const page = await browser.newPage();
-  await page.setViewport({ width: opts.width, height: opts.height });
+  const tmpHtml = path.join(__dirname, '_render_tmp.html');
+  try {
+    const page = await browser.newPage();
+    await page.setViewport({ width: opts.width, height: opts.height });
 
-  page.on('pageerror', err => console.error('Render page error:', err.message));
+    page.on('pageerror', err => console.error('Render page error:', err.message));
 
-  let html: string;
+    let html: string;
 
-  if (opts.test) {
-    html = generateTestHTML(opts);
-  } else {
-    if (!opts.input) {
-      console.error('Error: no input file specified.');
-      await browser.close();
-      process.exit(1);
+    if (opts.test) {
+      html = generateTestHTML(opts);
+    } else {
+      if (!opts.input) {
+        console.error('Error: no input file specified.');
+        process.exitCode = 1;
+        return;
+      }
+
+      const content = fs.readFileSync(opts.input, 'utf-8');
+      const filename = path.basename(opts.input);
+      const result = parseStructureFile(content, filename);
+      const structureJSON = JSON.stringify(result.structure);
+      const volumetricJSON = result.volumetric ? JSON.stringify({
+        origin: result.volumetric.origin,
+        lattice: result.volumetric.lattice,
+        dims: result.volumetric.dims,
+        data: Array.from(result.volumetric.data),
+      }) : null;
+
+      html = generateStructureHTML(opts, structureJSON, volumetricJSON);
     }
 
-    const content = fs.readFileSync(opts.input, 'utf-8');
-    const filename = path.basename(opts.input);
-    const result = parseStructureFile(content, filename);
-    const structureJSON = JSON.stringify(result.structure);
-    const volumetricJSON = result.volumetric ? JSON.stringify({
-      origin: result.volumetric.origin,
-      lattice: result.volumetric.lattice,
-      dims: result.volumetric.dims,
-      data: Array.from(result.volumetric.data),
-    }) : null;
+    const threePath = path.resolve(__dirname, '..', 'node_modules', 'three', 'build', 'three.module.js');
+    const helpersPath = path.resolve(__dirname, 'render-helpers.js');
+    html = html.replace(/__THREE_PATH__/g, `file://${threePath}`);
+    html = html.replace(/__HELPERS_PATH__/g, `file://${helpersPath}`);
+    fs.writeFileSync(tmpHtml, html);
+    await page.goto(`file://${tmpHtml}`, { waitUntil: 'networkidle0', timeout: 30000 });
 
-    html = generateStructureHTML(opts, structureJSON, volumetricJSON);
+    await page.waitForFunction('window.__renderDone === true', { timeout: 30000 });
+    await new Promise(r => setTimeout(r, 200));
+
+    const dataUrl = await page.evaluate(() => {
+      const c = document.getElementById('c') as HTMLCanvasElement;
+      return c ? c.toDataURL('image/png') : null;
+    });
+
+    if (dataUrl) {
+      const base64 = dataUrl.replace(/^data:image\/png;base64,/, '');
+      fs.writeFileSync(opts.output, Buffer.from(base64, 'base64'));
+      console.log(`Saved: ${opts.output}`);
+    } else {
+      console.error('Error: could not extract canvas data.');
+      process.exitCode = 1;
+    }
+  } finally {
+    try { fs.unlinkSync(tmpHtml); } catch {}
+    await browser.close();
   }
-
-  // Resolve Three.js + helpers paths and write HTML to temp file
-  const threePath = path.resolve(__dirname, '..', 'node_modules', 'three', 'build', 'three.module.js');
-  const helpersPath = path.resolve(__dirname, 'render-helpers.js');
-  html = html.replace(/__THREE_PATH__/g, `file://${threePath}`);
-  html = html.replace(/__HELPERS_PATH__/g, `file://${helpersPath}`);
-  const tmpHtml = path.join(__dirname, '_render_tmp.html');
-  fs.writeFileSync(tmpHtml, html);
-  await page.goto(`file://${tmpHtml}`, { waitUntil: 'networkidle0', timeout: 30000 });
-
-  // Wait for Three.js render to complete
-  await page.waitForFunction('window.__renderDone === true', { timeout: 30000 });
-
-  // Small delay for GPU buffer flush
-  await new Promise(r => setTimeout(r, 200));
-
-  // Extract canvas content via toDataURL
-  const dataUrl = await page.evaluate(() => {
-    const c = document.getElementById('c') as HTMLCanvasElement;
-    return c ? c.toDataURL('image/png') : null;
-  });
-
-  if (dataUrl) {
-    const base64 = dataUrl.replace(/^data:image\/png;base64,/, '');
-    fs.writeFileSync(opts.output, Buffer.from(base64, 'base64'));
-    console.log(`Saved: ${opts.output}`);
-  } else {
-    console.error('Error: could not extract canvas data.');
-  }
-
-  // Cleanup
-  try { fs.unlinkSync(tmpHtml); } catch {}
-  await browser.close();
 }
 
 // ---------------------------------------------------------------------------

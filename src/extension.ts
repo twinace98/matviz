@@ -13,6 +13,17 @@ export function activate(context: vscode.ExtensionContext) {
   );
 
   context.subscriptions.push(
+    vscode.commands.registerCommand('matviz.openInViewer', async (uri?: vscode.Uri) => {
+      const target = uri ?? vscode.window.activeTextEditor?.document.uri;
+      if (!target) {
+        vscode.window.showWarningMessage('MatViz: no active file to open.');
+        return;
+      }
+      await vscode.commands.executeCommand('vscode.openWith', target, 'matviz.crystalViewer');
+    })
+  );
+
+  context.subscriptions.push(
     vscode.commands.registerCommand('matviz.resetCamera', () => {
       provider.postMessageToActive({ type: 'resetCamera' });
     })

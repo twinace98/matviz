@@ -2,7 +2,7 @@
   "name": "vscode-matviz",
   "displayName": "MatViz - Crystal Structure Viewer",
   "description": "Interactive 3D crystal structure visualization for CIF, POSCAR, XSF, XYZ, PDB, Gaussian Cube, and more",
-  "version": "0.13.0",
+  "version": "0.13.1",
   "license": "MIT",
   "publisher": "matviz",
   "engines": {
@@ -19,59 +19,53 @@
         "viewType": "matviz.crystalViewer",
         "displayName": "Crystal Structure Viewer",
         "selector": [
-          {
-            "filenamePattern": "*.cif"
-          },
-          {
-            "filenamePattern": "*.xsf"
-          },
-          {
-            "filenamePattern": "*.poscar"
-          },
-          {
-            "filenamePattern": "*.vasp"
-          },
-          {
-            "filenamePattern": "POSCAR"
-          },
-          {
-            "filenamePattern": "CONTCAR"
-          },
-          {
-            "filenamePattern": "*.xyz"
-          },
-          {
-            "filenamePattern": "*.pdb"
-          },
-          {
-            "filenamePattern": "*.cube"
-          },
-          {
-            "filenamePattern": "*.cub"
-          },
-          {
-            "filenamePattern": "CHGCAR"
-          },
-          {
-            "filenamePattern": "AECCAR0"
-          },
-          {
-            "filenamePattern": "AECCAR2"
-          },
-          {
-            "filenamePattern": "PARCHG"
-          },
-          {
-            "filenamePattern": "geometry.in"
-          },
-          {
-            "filenamePattern": "*.out"
-          }
+          { "filenamePattern": "*.cif" },
+          { "filenamePattern": "*.xsf" },
+          { "filenamePattern": "*.axsf" },
+          { "filenamePattern": "*.poscar" },
+          { "filenamePattern": "*.vasp" },
+          { "filenamePattern": "POSCAR" },
+          { "filenamePattern": "CONTCAR" },
+          { "filenamePattern": "*.xyz" },
+          { "filenamePattern": "*.pdb" },
+          { "filenamePattern": "*.cube" },
+          { "filenamePattern": "*.cub" },
+          { "filenamePattern": "CHGCAR" },
+          { "filenamePattern": "AECCAR0" },
+          { "filenamePattern": "AECCAR2" },
+          { "filenamePattern": "PARCHG" },
+          { "filenamePattern": "geometry.in" }
         ],
         "priority": "default"
+      },
+      {
+        "viewType": "matviz.crystalViewer",
+        "displayName": "Crystal Structure Viewer",
+        "selector": [
+          { "filenamePattern": "*.in" },
+          { "filenamePattern": "*.out" },
+          { "filenamePattern": "*.stdin" },
+          { "filenamePattern": "*.stdout" },
+          { "filenamePattern": "*.pw" }
+        ],
+        "priority": "option"
       }
     ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "matviz.openInViewer",
+          "when": "resourceExtname =~ /^\\.(in|out|stdin|stdout|pw)$/",
+          "group": "navigation"
+        }
+      ]
+    },
     "commands": [
+      {
+        "command": "matviz.openInViewer",
+        "title": "Open in MatViz",
+        "icon": "$(graph)"
+      },
       {
         "command": "matviz.resetCamera",
         "title": "MatViz: Reset Camera"

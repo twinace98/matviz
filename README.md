@@ -2,21 +2,33 @@
 
 Interactive 3D crystal structure visualization as a VSCode extension, inspired by VESTA.
 
+## Quick start
+
+1. Install the extension (`npm run install-all`, or grab the `.vsix` from releases and `code --install-extension …`).
+2. Open a structure file in VSCode. Unambiguous formats (`.cif`, `.xsf`, `POSCAR`, `.xyz`, `.pdb`, `.cube`, `CHGCAR`, `geometry.in`, …) open directly in the 3D viewer.
+3. For QE input/output (`.in`, `.out`, `.stdin`, `.stdout`, `.pw`) the file opens as text first — click **Open in MatViz** in the editor title bar to render it.
+4. Rotate with the mouse (left-drag) or the ↑↓←→ buttons / keys. Zoom with the wheel or the +/− buttons. Everything else lives in the collapsible left side panel.
+5. Hover any button or control for a tooltip describing what it does.
+
 ## Supported Formats
 
-| Format | Extensions / Filenames |
-|---|---|
-| CIF | `*.cif` |
-| POSCAR / VASP | `*.poscar`, `*.vasp`, `POSCAR`, `CONTCAR` |
-| XSF | `*.xsf` |
-| XYZ | `*.xyz` |
-| PDB | `*.pdb` |
-| Gaussian Cube | `*.cube`, `*.cub` |
-| VASP Charge Density | `CHGCAR`, `AECCAR0`, `AECCAR2`, `PARCHG` |
-| Quantum ESPRESSO | `*.out` |
-| FHI-aims | `geometry.in` |
+| Format | Extensions / Filenames | Default open |
+|---|---|---|
+| CIF | `*.cif` | MatViz |
+| POSCAR / VASP | `*.poscar`, `*.vasp`, `POSCAR`, `CONTCAR` | MatViz |
+| XSF | `*.xsf`, `*.axsf` | MatViz |
+| XYZ | `*.xyz` | MatViz |
+| PDB | `*.pdb` | MatViz |
+| Gaussian Cube | `*.cube`, `*.cub` | MatViz |
+| VASP Charge Density | `CHGCAR`, `AECCAR0`, `AECCAR2`, `PARCHG` | MatViz |
+| FHI-aims | `geometry.in` | MatViz |
+| Quantum ESPRESSO | `*.in`, `*.out`, `*.stdin`, `*.stdout`, `*.pw` | Text first — click **Open in MatViz** |
 
-Files are automatically opened with the 3D viewer. Click the document icon in the top toolbar to open the same file as plain text.
+Unambiguous crystallography files open directly in the 3D viewer.
+Ambiguous extensions used in lab workflows (QE input/output, SLURM stdout,
+etc.) open as text by default; press the **Open in MatViz** button in the
+editor title bar to switch to the viewer. If parsing fails, an error toast
+with an **Open as Text** action is shown.
 
 ## UI Layout
 
@@ -93,15 +105,20 @@ Files are automatically opened with the 3D viewer. Click the document icon in th
 - All UI elements follow VSCode theme (dark/light)
 - Side panel is resizable by dragging the right edge
 - State persistence: display style, camera position, supercell settings are preserved across tab switches
+- **Tooltips on hover** for every toolbar button, slider, input, and side-panel control — hover any control to see what it does
 
 ## Keyboard Shortcuts
 
 | Key | Action |
 |---|---|
-| Arrow keys | Rotate (15-degree steps) |
-| Shift + Arrow keys | Fine rotate (1-degree steps) |
+| `↑` / `↓` | Rotate model up / down (model-space, matches button direction) |
+| `←` / `→` | Rotate model left / right |
+| Shift + Arrow | Fine rotate (1-degree step) |
 | `+` / `-` | Zoom in / out |
 | `Escape` | Clear selection and measurements |
+
+The rotation *step size* is set by the **Step(°)** input in the top toolbar
+(default 15°); the zoom step by **Step(%)** (default 10%).
 
 ## Commands (Command Palette)
 
@@ -142,7 +159,7 @@ Or step-by-step:
 npm install
 npm run build
 npx @vscode/vsce package --no-dependencies
-code --install-extension vscode-matviz-0.13.0.vsix --force
+code --install-extension vscode-matviz-0.13.1.vsix --force
 npm run install-skill   # optional — only if you use Claude Code
 ```
 
@@ -156,13 +173,27 @@ AI-assisted report workflows.
 node dist/render.js structure.cif -o out.png [options]
 ```
 
-Options: `--style`, `--view`, `--supercell`, `--camera`, `--palette`,
-`--bg`, `--labels`, `--polyhedra`, `--iso`, `--no-bonds`, `--no-boundary`,
-`--no-cell`. See `node dist/render.js --help` for the full list.
+Common options:
+
+| Flag | Purpose |
+|---|---|
+| `-o <path>` | Output PNG path (required) |
+| `--style <ball-and-stick\|space-filling\|stick\|wireframe>` | Rendering style |
+| `--view <a\|b\|c\|a*\|b*\|c*\|std>` | Predefined camera view |
+| `--supercell a,b,c` | Expand cell (e.g. `2,2,1`) |
+| `--camera <ortho\|persp>` | Projection |
+| `--palette <dark\|light>` | Theme |
+| `--bg <color>` | Background color (CSS hex/name) |
+| `--labels` / `--polyhedra` | Element labels / coordination polyhedra |
+| `--iso <level>` | Isosurface level for volumetric files |
+| `--no-bonds` / `--no-boundary` / `--no-cell` | Disable features |
+
+Run `node dist/render.js --help` for the full list.
 
 The `matviz-render` Claude skill lets Claude Code invoke the CLI when you
 ask things like "render this POSCAR" or "보고서에 구조 이미지 넣어줘".
-Run `npm run install-skill` to install the skill to `~/.claude/skills/`.
+`npm run install-all` installs both the extension and the skill;
+`npm run install-skill` installs the skill only.
 
 ## Architecture
 

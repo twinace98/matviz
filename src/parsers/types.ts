@@ -9,14 +9,6 @@ export interface CrystalStructure {
   symmetryOps?: string[];  // e.g., ["x,y,z", "-x+1/2,y,-z+1/2"]
 }
 
-export interface ElementData {
-  symbol: string;
-  number: number;
-  color: string;       // hex color
-  covalentRadius: number;  // Angstroms
-  vdwRadius: number;       // Angstroms
-}
-
 export interface VolumetricData {
   origin: [number, number, number];
   lattice: [number, number, number][];

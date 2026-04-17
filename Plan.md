@@ -11,9 +11,9 @@ VESTA-inspired crystal structure viewer as a VSCode extension. Goal: provide com
 - On-demand rendering (no continuous rAF loop)
 
 **Critical caveats**:
-- Webview CSP must remain strict (nonce-only scripts)
-- Element data is duplicated across bundles (`elements.ts` / `elements-data.ts`) — must stay in sync
-- Bond detection is O(N) via spatial hashing but skipped for >5000 atoms
+- Webview CSP must remain strict (nonce-only scripts). Current CSP still allows `'unsafe-inline'` for styles — slated for removal in v0.13.1.
+- Element data is duplicated across **three** bundles (`parsers/elements.ts`, `webview/elements-data.ts`, and the inline table in `scripts/render.ts`) — currently drifted (see v0.13.1). Long-term fix: single source of truth.
+- Bond detection is O(N) via spatial hashing but skipped hard for >5000 atoms (no UI indication — v0.14 should surface this).
 
 ---
 
@@ -37,6 +37,28 @@ VESTA-inspired crystal structure viewer as a VSCode extension. Goal: provide com
 
 ---
 
+## v0.13.1 — Hardening hotfix (from 2026-04-17 code review)
+
+**Goal**: Close correctness and reliability gaps surfaced by the full-project review before starting UX work. Small, bounded patch release.
+
+| # | Feature | Success criterion |
+|---|---------|-------------------|
+| 13.1.1 | Unify element tables — single source of truth shared by extension, webview, and CLI | All three tables generated from one data module; CI (or build step) fails on drift. 12 missing lanthanides (Pr, Nd, Sm, Eu, Gd, Tb, Dy, Ho, Er, Tm, Yb, Lu) present in webview |
+| 13.1.2 | Editor error boundary: wrap `parseStructureFile()` in `crystalEditorProvider.ts:52` with try/catch; show error toast + "Open as text" fallback | Malformed `.out`/`.cif`/`.poscar` no longer yields an unusable blank editor |
+| 13.1.3 | Narrow `*.out` association heuristic (QE shape check before claiming the editor) | Non-QE `.out` files (compiler logs, generic output) open as text by default |
+| 13.1.4 | Inline-material registry in `renderer.ts` — track every inline `Material` allocation (plane, iso, axis, measurement, bond wireframe, polyhedron, labels, cell) for disposal in `disposeResources()` | No VRAM growth across 50 rebuild cycles (measure via `renderer.info.memory`) |
+| 13.1.5 | CLI renderer `try/finally` around Puppeteer browser lifecycle in `scripts/render.ts:717-792` | Exceptions in `readFileSync` / `parseStructureFile` / `page.goto` close the browser cleanly |
+| 13.1.6 | Tighten webview CSP — drop `'unsafe-inline'` from `style-src` in `crystalEditorProvider.ts:130` | Loaded webview has no inline `<style>` violations; styles.css continues to load |
+
+**Non-goals (explicitly deferred)**:
+- Renderer split (BondRenderer / AxisIndicator / MaterialRegistry extractions) → v0.14+
+- Parser NaN guards for degenerate geometry (γ=0/180, a=b=c=0) → track in tech-debt registry below
+- CLI element-table parity fix is folded into 13.1.1
+
+**Exit criterion**: All six items land with a manual test pass on the v0.13 test fixtures + a structure containing a lanthanide. Tagged v0.13.1.
+
+---
+
 ## v0.14 — UX polish
 
 **Goal**: Improve daily-use ergonomics — responsive layout, side panel behavior, toolbar discoverability.
@@ -48,6 +70,8 @@ VESTA-inspired crystal structure viewer as a VSCode extension. Goal: provide com
 | 14.3 | Keyboard shortcut discoverability (tooltips, help overlay) | First-time user can discover all shortcuts in <30s |
 | 14.4 | State persistence improvements | Camera position, panel collapsed state, all settings restored on reopen |
 | 14.5 | Performance profiling & budget enforcement | Draw calls <100, idle GPU = 0 frames, memory <100MB |
+| 14.6 | Bond cutoff UX — when >5000 atoms skips bond detection, show an inline hint in the side panel | User understands why bonds are absent; can raise the cap with one click |
+| 14.7 | First pass of `renderer.ts` split — extract `AxisIndicator` component (owns its own geometries, materials, textures, disposal) | `renderer.ts` drops by ~60 LOC; axis rebuild no longer leaks |
 
 **Exit criterion**: All features work across light/dark themes at editor widths from 400px to 2000px.
 
@@ -142,3 +166,33 @@ VESTA-inspired crystal structure viewer as a VSCode extension. Goal: provide com
 | Isosurface 64³ | <500ms | `performance.now()` |
 | Memory (no volumetric) | <100MB | DevTools heap |
 | Style switch | <50ms, no bond re-detection | Visual + timing |
+
+---
+
+## Tech-debt registry (from 2026-04-17 code review)
+
+Tracked separately so individual items can slot into any version patch without rewriting the plan. Order is rough priority.
+
+| Area | Item | File:line | Proposed slot |
+|------|------|-----------|----------------|
+| Renderer | Redundant condition on negative isosurface branch — collapse `if (isoLevel > 0)` duplicate into one block calling marching cubes twice | `src/webview/renderer.ts:492, 510` | v0.14.7 (with AxisIndicator extraction) |
+| Renderer | Split `renderer.ts` (2019 LOC) further — `BondRenderer`, `MaterialRegistry` after AxisIndicator | `src/webview/renderer.ts` | v0.15 prep |
+| Parsers | Degenerate-lattice NaN guards (γ=0/180, a=b=c=0) | `src/parsers/cifParser.ts:366`, `pdbParser.ts:66` | v0.16 (extended crystallography touches these anyway) |
+| Parsers | XYZ numeric atomic-number fallback returns `'X'` — should call `getElementByNumber` like XSF | `src/parsers/xyzParser.ts:47-52` | any patch |
+| Parsers | QE parser silently returns default 10×10×10 lattice on parse failure — should throw so 13.1.2 error boundary triggers | `src/parsers/qeParser.ts:85-86` | v0.13.1 (helps 13.1.2/13.1.3) |
+| Parsers | Auto-detect CIF via `content.includes('_cell_length_a')` — naive, gated only by prior filename checks | `src/parsers/index.ts:61` | low; keep noted |
+| Parsers | Dead branch: aims check in `.in`-or-`.out` block, but `.out` short-circuits earlier | `src/parsers/index.ts:41` | trivial cleanup |
+| Shared | Duplicate `BOHR_TO_ANG` constant | `src/parsers/cubeParser.ts:4`, `qeParser.ts:3` | trivial cleanup |
+| Renderer | Axis label `CanvasTexture` (line 889) not pushed to `this.textures` | `src/webview/renderer.ts:889` | covered by 14.7 |
+
+---
+
+## Known-solid (verified during 2026-04-17 review — leave alone)
+
+- Marching cubes (`webview/marchingCubes.ts`) — interpolation, winding, normal generation correct.
+- XSF/CHGCAR Fortran→C reorder fix from v0.13.0 — verified against `marchingCubes.ts:29` indexing.
+- Boundary-atom wrap into [0,1) + supercell expansion — dedup logic and edge handling sound.
+- InstancedMesh discipline — `updateMatrix()` before `setMatrixAt()`, `instanceMatrix.needsUpdate = true`.
+- Canvas sizing — `renderer.setSize(w, h, false)` preserves CSS layout (locked decision upheld).
+- Extension-host surface — CSP nonce per-panel, `localResourceRoots` locked to `dist`/`media`, `asWebviewUri` throughout; export uses native `showSaveDialog` (no path traversal); webview inbound messages restricted to `ready`/`openAsText`.
+- `scripts/install-skill.sh` — properly hardened (`set -euo pipefail`, quoted expansions).

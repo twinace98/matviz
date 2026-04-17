@@ -82,8 +82,11 @@ export function parseQE(content: string): CrystalStructure {
     }
   }
 
-  if (lattice.length === 0) {
-    lattice = [[10, 0, 0], [0, 10, 0], [0, 0, 10]];
+  if (lattice.length !== 3 || positions.length === 0) {
+    throw new Error(
+      'Quantum ESPRESSO parser found no CELL_PARAMETERS / ATOMIC_POSITIONS. ' +
+      'File may not be a QE input/output, or the calculation did not produce final coordinates yet.'
+    );
   }
 
   return { lattice, species, positions, pbc: [true, true, true], title };

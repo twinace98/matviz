@@ -1,5 +1,5 @@
 import { CrystalStructure, VolumetricData } from './types';
-import { getElementByNumber } from './elements';
+import { getElementByNumber } from '../shared/elements-data';
 
 const BOHR_TO_ANG = 0.529177249;
 

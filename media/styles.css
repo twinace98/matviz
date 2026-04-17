@@ -294,6 +294,10 @@ html, body {
   text-align: center;
 }
 
+.sc-input.full-width { width: 100%; }
+
+.hidden { display: none; }
+
 /* ===== Properties panels ===== */
 .panel-label-toggle {
   cursor: pointer;

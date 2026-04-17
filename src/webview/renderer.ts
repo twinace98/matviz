@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { CrystalStructure } from '../parsers/types';
-import { getWebElement, getElementPaletteColor, getPaletteLineColors } from './elements-data';
-import type { ColorPalette } from './elements-data';
+import { getElement } from '../shared/elements-data';
+import { getElementPaletteColor, getPaletteLineColors } from '../shared/elements-palette';
+import type { ColorPalette } from '../shared/elements-palette';
 import type { DisplayStyle, CameraMode, BondStyle } from './message';
 import { marchingCubes } from './marchingCubes';
 import type { VolumetricData } from '../parsers/types';
@@ -71,6 +72,7 @@ export class CrystalRenderer {
   // Resource tracking
   private geometries: THREE.BufferGeometry[] = [];
   private textures: THREE.Texture[] = [];
+  private materials: THREE.Material[] = [];
 
   // Cached expanded data
   private expandedSpecies: string[] = [];
@@ -315,7 +317,7 @@ export class CrystalRenderer {
   }
 
   getElementRadius(element: string): number {
-    return this.elementRadiusOverrides.get(element) || getWebElement(element).displayRadius;
+    return this.elementRadiusOverrides.get(element) || getElement(element).displayRadius;
   }
 
   getElementVisibility(element: string): boolean {
@@ -422,12 +424,12 @@ export class CrystalRenderer {
     const colors = [0x4444ff, 0xff4444, 0x44ff44, 0xff44ff, 0xffff44, 0x44ffff];
     const colorIdx = this.planeGroup.children.length % colors.length;
 
-    const planeMat = new THREE.MeshPhongMaterial({
+    const planeMat = this.trackMat(new THREE.MeshPhongMaterial({
       color: colors[colorIdx],
       transparent: true,
       opacity: 0.3,
       side: THREE.DoubleSide,
-    });
+    }));
 
     const planeMesh = new THREE.Mesh(planeGeo, planeMat);
     planeMesh.position.copy(center);
@@ -496,12 +498,12 @@ export class CrystalRenderer {
         geo.setAttribute('position', new THREE.BufferAttribute(result.positions, 3));
         geo.setAttribute('normal', new THREE.BufferAttribute(result.normals, 3));
         this.geometries.push(geo);
-        const mat = new THREE.MeshPhongMaterial({
+        const mat = this.trackMat(new THREE.MeshPhongMaterial({
           color: this.paletteColors().isoPos,
           transparent: true,
           opacity: 0.6,
           side: THREE.DoubleSide,
-        });
+        }));
         this.isoGroup.add(new THREE.Mesh(geo, mat));
       }
     }
@@ -514,12 +516,12 @@ export class CrystalRenderer {
         geo.setAttribute('position', new THREE.BufferAttribute(result.positions, 3));
         geo.setAttribute('normal', new THREE.BufferAttribute(result.normals, 3));
         this.geometries.push(geo);
-        const mat = new THREE.MeshPhongMaterial({
+        const mat = this.trackMat(new THREE.MeshPhongMaterial({
           color: this.paletteColors().isoNeg,
           transparent: true,
           opacity: 0.6,
           side: THREE.DoubleSide,
-        });
+        }));
         this.isoGroup.add(new THREE.Mesh(geo, mat));
       }
     }
@@ -861,7 +863,7 @@ export class CrystalRenderer {
       const shaftGeo = new THREE.CylinderGeometry(0.04, 0.04, 1.0, 8);
       shaftGeo.translate(0, 0.5, 0);
       shaftGeo.rotateX(Math.PI / 2);
-      const shaftMat = new THREE.MeshBasicMaterial({ color });
+      const shaftMat = this.trackMat(new THREE.MeshBasicMaterial({ color }));
       const shaft = new THREE.Mesh(shaftGeo, shaftMat);
       shaft.lookAt(v);
       this.axisArrows.add(shaft);
@@ -870,7 +872,7 @@ export class CrystalRenderer {
       const headGeo = new THREE.ConeGeometry(0.1, 0.25, 8);
       headGeo.translate(0, 0.125, 0);
       headGeo.rotateX(Math.PI / 2);
-      const headMat = new THREE.MeshBasicMaterial({ color });
+      const headMat = this.trackMat(new THREE.MeshBasicMaterial({ color }));
       const head = new THREE.Mesh(headGeo, headMat);
       head.position.copy(v.clone().multiplyScalar(1.0));
       head.lookAt(v.clone().multiplyScalar(2));
@@ -887,7 +889,7 @@ export class CrystalRenderer {
       ctx.textBaseline = 'middle';
       ctx.fillText(label, 32, 32);
       const tex = new THREE.CanvasTexture(canvas);
-      const spriteMat = new THREE.SpriteMaterial({ map: tex, depthTest: false });
+      const spriteMat = this.trackMat(new THREE.SpriteMaterial({ map: tex, depthTest: false }));
       const sprite = new THREE.Sprite(spriteMat);
       sprite.position.copy(v.clone().multiplyScalar(1.4));
       sprite.scale.set(0.4, 0.4, 1);
@@ -896,7 +898,7 @@ export class CrystalRenderer {
 
     // Origin sphere
     const originGeo = new THREE.SphereGeometry(0.06, 8, 6);
-    const originMat = new THREE.MeshBasicMaterial({ color: 0xaaaaaa });
+    const originMat = this.trackMat(new THREE.MeshBasicMaterial({ color: 0xaaaaaa }));
     this.axisArrows.add(new THREE.Mesh(originGeo, originMat));
   }
 
@@ -971,6 +973,13 @@ export class CrystalRenderer {
   private disposeAllMaterials() {
     for (const mat of this.materialCache.values()) mat.dispose();
     this.materialCache.clear();
+    for (const mat of this.materials) mat.dispose();
+    this.materials = [];
+  }
+
+  private trackMat<T extends THREE.Material>(m: T): T {
+    this.materials.push(m);
+    return m;
   }
 
   // --- Adaptive LOD ---
@@ -1149,7 +1158,7 @@ export class CrystalRenderer {
     // Dashed line
     const lineGeo = new THREE.BufferGeometry().setFromPoints([pA, pB]);
     this.geometries.push(lineGeo);
-    const lineMat = new THREE.LineDashedMaterial({ color: 0xffff00, dashSize: 0.2, gapSize: 0.1 });
+    const lineMat = this.trackMat(new THREE.LineDashedMaterial({ color: 0xffff00, dashSize: 0.2, gapSize: 0.1 }));
     const line = new THREE.Line(lineGeo, lineMat);
     line.computeLineDistances();
     this.measureGroup.add(line);
@@ -1226,7 +1235,7 @@ export class CrystalRenderer {
     ctx.fillText(text, 128, 32);
     const tex = new THREE.CanvasTexture(c);
     this.textures.push(tex);
-    const mat = new THREE.SpriteMaterial({ map: tex, depthTest: false });
+    const mat = this.trackMat(new THREE.SpriteMaterial({ map: tex, depthTest: false }));
     const sprite = new THREE.Sprite(mat);
     sprite.scale.set(1.5, 0.4, 1);
     return sprite;
@@ -1265,7 +1274,7 @@ export class CrystalRenderer {
       for (let j = i; j < sorted.length; j++) {
         const pair = `${sorted[i]}-${sorted[j]}`;
         if (!this.bondParams.has(pair)) {
-          const max = getWebElement(sorted[i]).covalentRadius + getWebElement(sorted[j]).covalentRadius + 0.3;
+          const max = getElement(sorted[i]).covalentRadius + getElement(sorted[j]).covalentRadius + 0.3;
           this.bondParams.set(pair, { min: 0.1, max, enabled: true });
         }
       }
@@ -1536,7 +1545,7 @@ export class CrystalRenderer {
     for (const [element, indices] of groups) {
       if (this.elementVisibility.get(element) === false) continue;
 
-      const elData = getWebElement(element);
+      const elData = getElement(element);
       const color = this.getElementColor(element);
       const customRadius = this.elementRadiusOverrides.get(element);
       const isWireframe = style === 'wireframe';
@@ -1673,7 +1682,7 @@ export class CrystalRenderer {
     geo.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
     geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
     this.geometries.push(geo);
-    this.bondGroup.add(new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ vertexColors: true })));
+    this.bondGroup.add(new THREE.LineSegments(geo, this.trackMat(new THREE.LineBasicMaterial({ vertexColors: true }))));
   }
 
   // --- Polyhedra ---
@@ -1760,19 +1769,19 @@ export class CrystalRenderer {
     this.geometries.push(geo);
 
     const color = new THREE.Color(this.getElementColor(element));
-    const mat = new THREE.MeshPhongMaterial({
+    const mat = this.trackMat(new THREE.MeshPhongMaterial({
       color,
       transparent: true,
       opacity: 0.4,
       side: THREE.DoubleSide,
       shininess: 30,
-    });
+    }));
     this.polyhedraGroup.add(new THREE.Mesh(geo, mat));
 
     // Edge outlines
     const edgesGeo = new THREE.EdgesGeometry(geo);
     this.geometries.push(edgesGeo);
-    const edgesMat = new THREE.LineBasicMaterial({ color: color.clone().multiplyScalar(0.6) });
+    const edgesMat = this.trackMat(new THREE.LineBasicMaterial({ color: color.clone().multiplyScalar(0.6) }));
     this.polyhedraGroup.add(new THREE.LineSegments(edgesGeo, edgesMat));
   }
 
@@ -1782,7 +1791,7 @@ export class CrystalRenderer {
     this.clearGroup(this.labelGroup);
     for (let i = 0; i < this.expandedSpecies.length; i++) {
       const tex = this.getLabelTexture(this.expandedSpecies[i]);
-      const mat = new THREE.SpriteMaterial({ map: tex, depthTest: false, depthWrite: false });
+      const mat = this.trackMat(new THREE.SpriteMaterial({ map: tex, depthTest: false, depthWrite: false }));
       const sprite = new THREE.Sprite(mat);
       const p = this.expandedPositions[i];
       sprite.position.set(p[0], p[1] + 0.5, p[2]);
@@ -1846,7 +1855,7 @@ export class CrystalRenderer {
     const outerGeo = new THREE.BufferGeometry();
     outerGeo.setAttribute('position', new THREE.Float32BufferAttribute(outerPts, 3));
     this.geometries.push(outerGeo);
-    this.cellGroup.add(new THREE.LineSegments(outerGeo, new THREE.LineBasicMaterial({ color: this.paletteColors().line })));
+    this.cellGroup.add(new THREE.LineSegments(outerGeo, this.trackMat(new THREE.LineBasicMaterial({ color: this.paletteColors().line }))));
 
     // Unit cell boundaries as dashed lines (rendered on top of atoms)
     // For 1x1x1: the outer boundary itself; for supercell: internal slices
@@ -1894,12 +1903,12 @@ export class CrystalRenderer {
       if (dashPts.length > 0) {
         const dashGeo = new THREE.BufferGeometry().setFromPoints(dashPts);
         this.geometries.push(dashGeo);
-        const dashMat = new THREE.LineDashedMaterial({
+        const dashMat = this.trackMat(new THREE.LineDashedMaterial({
           color: this.paletteColors().dash,
           dashSize: 0.3,
           gapSize: 0.15,
           depthTest: false,
-        });
+        }));
         const dashLines = new THREE.LineSegments(dashGeo, dashMat);
         dashLines.computeLineDistances();
         dashLines.renderOrder = 998;

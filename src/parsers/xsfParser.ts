@@ -1,5 +1,5 @@
 import { CrystalStructure, VolumetricData } from './types';
-import { getElementByNumber } from './elements';
+import { getElementByNumber } from '../shared/elements-data';
 
 export function parseXsf(content: string): CrystalStructure & { volumetric?: VolumetricData } {
   const lines = content.split('\n');

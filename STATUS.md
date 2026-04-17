@@ -1,6 +1,6 @@
 # Project Status
 
-- **Version**: v0.13.0 (released 2026-04-16) — CLI renderer + isosurface axis-order hotfix
+- **Version**: v0.13.1 (released 2026-04-17) — hardening: shared elements-data, editor error boundary, ambiguous-extension priority:"option" + "Open in MatViz" button, QE silent-default removal, renderer material registry, CLI try/finally, CSP tightening
 - **Phase**: v0.14 kickoff pending — scope shifted: UX polish (originally v0.13) now v0.14
 - **People**: Seungwoo Shin (twinace98)
 - **Repo**: https://github.com/twinace98/matviz.git
@@ -18,6 +18,7 @@
 - **v0.11** (2026-04-15): UI overhaul — dark/light palette toggle, rotation sensitivity fix, clipping fix for large supercells
 - **v0.12** (2026-04-16): Rendering fixes, license cleanup, boundary wrap logic, stick style fix, bond defaults (`rA+rB+0.3`), adaptive top-bar, collapsible side panel, canvas sizing fix
 - **v0.13** (2026-04-16): Headless CLI renderer (`scripts/render.ts` → `dist/render.js`) via Puppeteer + SwiftShader; Claude skill `matviz-render`; XSF/CHGCAR isosurface axis-order hotfix (Fortran→C layout at parse time)
+- **v0.13.1** (2026-04-17): Hardening release — single-source element data (`src/shared/elements-data.ts`, 80 elements w/ lanthanide displayRadius fill), editor parse-error boundary with "Open as Text" fallback, ambiguous `.in/.out/.stdin/.stdout/.pw` editor priority lowered to `"option"` + title-bar "Open in MatViz" button, QE parser throws on empty parse instead of returning 10×10×10 default, renderer material registry disposes all inline `MeshPhong/MeshBasic/Line/Sprite` allocations, CLI renderer `try/finally` around browser lifecycle, webview CSP dropped `'unsafe-inline'` (inline styles → utility classes)
 
 ## Hotfixes
 

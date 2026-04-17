@@ -35,14 +35,21 @@ export function parseStructureFile(content: string, filename: string): ParseResu
   if (lower.endsWith('.pdb') || lower.endsWith('.ent')) {
     return { structure: parsePdb(content) };
   }
-  if (lower.endsWith('.out') || lower.endsWith('.pw')) {
+  if (
+    lower.endsWith('.out') ||
+    lower.endsWith('.pw') ||
+    lower.endsWith('.stdout') ||
+    lower.endsWith('.stdin')
+  ) {
     return { structure: parseQE(content) };
   }
   if (lower === 'geometry.in' || lower.endsWith('.in')) {
-    // Check if it looks like FHI-aims
+    // FHI-aims signature
     if (content.includes('atom ') || content.includes('lattice_vector')) {
       return { structure: parseAims(content) };
     }
+    // Otherwise treat as Quantum ESPRESSO input
+    return { structure: parseQE(content) };
   }
   if (
     lower.endsWith('.poscar') ||

@@ -49,8 +49,21 @@ export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvide
     const data = await vscode.workspace.fs.readFile(uri);
     const content = new TextDecoder('utf-8').decode(data);
     const filename = path.basename(uri.fsPath);
-    const result = parseStructureFile(content, filename);
-    return new CrystalDocument(uri, result.structure, result.volumetric);
+    try {
+      const result = parseStructureFile(content, filename);
+      return new CrystalDocument(uri, result.structure, result.volumetric);
+    } catch (err: any) {
+      const msg = err?.message ?? String(err);
+      vscode.window.showErrorMessage(
+        `MatViz could not parse ${filename}: ${msg}`,
+        'Open as Text'
+      ).then(choice => {
+        if (choice === 'Open as Text') {
+          vscode.commands.executeCommand('vscode.openWith', uri, 'default');
+        }
+      });
+      throw err;
+    }
   }
 
   async resolveCustomEditor(
@@ -127,7 +140,7 @@ export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvide
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src ${webview.cspSource} blob: data:;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}'; img-src ${webview.cspSource} blob: data:;">
   <link href="${styleUri}" rel="stylesheet">
   <title>Crystal Structure</title>
 </head>
@@ -145,12 +158,12 @@ export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvide
   <!-- Top toolbar -->
   <div id="top-bar">
     <div class="bar-group" title="Axis Views">
-      <button id="view-a" class="bar-btn axis-btn">a</button>
-      <button id="view-b" class="bar-btn axis-btn">b</button>
-      <button id="view-c" class="bar-btn axis-btn">c</button>
-      <button id="view-a*" class="bar-btn axis-btn">a*</button>
-      <button id="view-b*" class="bar-btn axis-btn">b*</button>
-      <button id="view-c*" class="bar-btn axis-btn">c*</button>
+      <button id="view-a" class="bar-btn axis-btn" title="View along a axis">a</button>
+      <button id="view-b" class="bar-btn axis-btn" title="View along b axis">b</button>
+      <button id="view-c" class="bar-btn axis-btn" title="View along c axis">c</button>
+      <button id="view-a*" class="bar-btn axis-btn" title="View along a* (reciprocal a) axis">a*</button>
+      <button id="view-b*" class="bar-btn axis-btn" title="View along b* (reciprocal b) axis">b*</button>
+      <button id="view-c*" class="bar-btn axis-btn" title="View along c* (reciprocal c) axis">c*</button>
     </div>
     <span class="bar-sep"></span>
     <div class="bar-group" title="Standard Orientation">
@@ -164,8 +177,8 @@ export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvide
       <button id="rot-right" class="bar-btn" title="Rotate right">&#x2192;</button>
       <button id="rot-ccw" class="bar-btn" title="Rotate CCW">&#x21BA;</button>
       <button id="rot-cw" class="bar-btn" title="Rotate CW">&#x21BB;</button>
-      <label class="bar-label">Step(&deg;):
-        <input type="number" id="step-angle" value="15" min="1" max="90" step="1" class="bar-input">
+      <label class="bar-label" title="Rotation step (degrees) per arrow-button / arrow-key press">Step(&deg;):
+        <input type="number" id="step-angle" value="15" min="1" max="90" step="1" class="bar-input" title="Rotation step in degrees (1–90)">
       </label>
     </div>
     <span class="bar-sep"></span>
@@ -173,8 +186,8 @@ export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvide
       <button id="zoom-in" class="bar-btn" title="Zoom in">+</button>
       <button id="zoom-out" class="bar-btn" title="Zoom out">&minus;</button>
       <button id="zoom-fit" class="bar-btn" title="Fit to view">&#x2922;</button>
-      <label class="bar-label">Step(%):
-        <input type="number" id="step-zoom" value="10" min="1" max="50" step="1" class="bar-input">
+      <label class="bar-label" title="Zoom step (percent) per zoom-button press or wheel tick">Step(%):
+        <input type="number" id="step-zoom" value="10" min="1" max="50" step="1" class="bar-input" title="Zoom step in percent (1–50)">
       </label>
     </div>
     <span class="bar-sep"></span>
@@ -191,55 +204,55 @@ export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvide
     <div id="info"></div>
     <div class="panel-section">
       <div class="panel-label">Style</div>
-      <select id="display-style" class="panel-select">
-        <option value="ball-and-stick" selected>Ball &amp; Stick</option>
-        <option value="space-filling">Space-filling</option>
-        <option value="stick">Stick</option>
-        <option value="wireframe">Wireframe</option>
+      <select id="display-style" class="panel-select" title="Rendering style for atoms and bonds">
+        <option value="ball-and-stick" selected title="Atoms as spheres, bonds as split-color cylinders">Ball &amp; Stick</option>
+        <option value="space-filling" title="Atoms at full van der Waals radius, no bonds">Space-filling</option>
+        <option value="stick" title="Bonds only, atoms shrunk to stick radius">Stick</option>
+        <option value="wireframe" title="Lines only">Wireframe</option>
       </select>
     </div>
     <div class="panel-section">
       <div class="panel-label">Camera</div>
-      <button id="camera-toggle" class="panel-btn active">Ortho</button>
+      <button id="camera-toggle" class="panel-btn active" title="Toggle between orthographic and perspective projection">Ortho</button>
     </div>
     <div class="panel-section">
       <div class="panel-label">Visibility</div>
       <div class="toggle-group">
-        <label class="toggle"><input type="checkbox" id="bonds-check" checked><span>Bonds</span></label>
-        <label class="toggle"><input type="checkbox" id="labels-check"><span>Labels</span></label>
-        <label class="toggle"><input type="checkbox" id="poly-check"><span>Polyhedra</span></label>
-        <label class="toggle"><input type="checkbox" id="boundary-check" checked><span>Boundary</span></label>
-        <label class="toggle"><input type="checkbox" id="celldash-check" checked><span>Cell lines</span></label>
+        <label class="toggle" title="Show bonds between atoms"><input type="checkbox" id="bonds-check" checked><span>Bonds</span></label>
+        <label class="toggle" title="Show element symbol labels on atoms"><input type="checkbox" id="labels-check"><span>Labels</span></label>
+        <label class="toggle" title="Show coordination polyhedra around selected elements"><input type="checkbox" id="poly-check"><span>Polyhedra</span></label>
+        <label class="toggle" title="Show boundary atoms (atoms on cell faces wrapped to neighbors)"><input type="checkbox" id="boundary-check" checked><span>Boundary</span></label>
+        <label class="toggle" title="Show dashed inner cell lines for supercells"><input type="checkbox" id="celldash-check" checked><span>Cell lines</span></label>
       </div>
     </div>
     <div class="panel-section">
-      <div class="panel-label">Axes size</div>
-      <input type="range" id="axis-size" class="iso-slider" min="60" max="400" step="10" value="300">
+      <div class="panel-label" title="Screen size (pixels) of the axis indicator widget">Axes size</div>
+      <input type="range" id="axis-size" class="iso-slider" min="60" max="400" step="10" value="300" title="Axis indicator size (60–400 px)">
     </div>
     <div class="panel-section">
-      <div class="panel-label">Supercell</div>
+      <div class="panel-label" title="Expand the unit cell along each lattice vector">Supercell</div>
       <div class="sc-row">
-        <input type="number" id="sc-a" value="1" min="1" max="5" class="sc-input" title="a">
-        <input type="number" id="sc-b" value="1" min="1" max="5" class="sc-input" title="b">
-        <input type="number" id="sc-c" value="1" min="1" max="5" class="sc-input" title="c">
+        <input type="number" id="sc-a" value="1" min="1" max="5" class="sc-input" title="Supercell repeats along a (1–5)">
+        <input type="number" id="sc-b" value="1" min="1" max="5" class="sc-input" title="Supercell repeats along b (1–5)">
+        <input type="number" id="sc-c" value="1" min="1" max="5" class="sc-input" title="Supercell repeats along c (1–5)">
       </div>
     </div>
-    <div class="panel-section" id="iso-section" style="display:none;">
-      <div class="panel-label">Iso-level</div>
-      <input type="range" id="iso-slider" class="iso-slider" min="0" max="1" step="0.001" value="0">
-      <input type="number" id="iso-input" class="sc-input" style="width:100%;" step="any" value="0">
+    <div class="panel-section hidden" id="iso-section">
+      <div class="panel-label" title="Isosurface contour level for the loaded volumetric data">Iso-level</div>
+      <input type="range" id="iso-slider" class="iso-slider" min="0" max="1" step="0.001" value="0" title="Drag to change isosurface level (absolute value; negative lobe drawn automatically)">
+      <input type="number" id="iso-input" class="sc-input full-width" step="any" value="0" title="Isosurface level (numeric entry)">
     </div>
     <div class="panel-section">
-      <div class="panel-label panel-label-toggle" id="atoms-toggle">Atoms &#x25B6;</div>
-      <div id="atoms-props" class="props-list" style="display:none;"></div>
+      <div class="panel-label panel-label-toggle" id="atoms-toggle" title="Expand per-element color / radius / visibility overrides">Atoms &#x25B6;</div>
+      <div id="atoms-props" class="props-list hidden"></div>
     </div>
     <div class="panel-section">
-      <div class="panel-label panel-label-toggle" id="bonds-toggle">Bonds &#x25B6;</div>
-      <div id="bonds-props" class="props-list" style="display:none;"></div>
+      <div class="panel-label panel-label-toggle" id="bonds-toggle" title="Expand per-pair bond cutoff settings">Bonds &#x25B6;</div>
+      <div id="bonds-props" class="props-list hidden"></div>
     </div>
   </div>
 
-  <div id="tooltip" style="display:none;"></div>
+  <div id="tooltip" class="hidden"></div>
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;

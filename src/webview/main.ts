@@ -162,10 +162,10 @@ function getStepZoom(): number { return (parseFloat(stepZoomInput?.value) || 10)
 
 // Rotation buttons
 const rotMap: Record<string, [number, 'x' | 'y' | 'z']> = {
-  'rot-up':    [-1, 'x'],
-  'rot-down':  [1,  'x'],
-  'rot-left':  [-1, 'y'],
-  'rot-right': [1,  'y'],
+  'rot-up':    [1,  'x'],
+  'rot-down':  [-1, 'x'],
+  'rot-left':  [1,  'y'],
+  'rot-right': [-1, 'y'],
   'rot-ccw':   [-1, 'z'],
   'rot-cw':    [1,  'z'],
 };
@@ -208,10 +208,10 @@ window.addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
   const step = e.shiftKey ? 1 : getStepAngle();
   switch (e.key) {
-    case 'ArrowUp':    renderer.rotateCamera(-step, 'x'); e.preventDefault(); break;
-    case 'ArrowDown':  renderer.rotateCamera(step,  'x'); e.preventDefault(); break;
-    case 'ArrowLeft':  renderer.rotateCamera(-step, 'y'); e.preventDefault(); break;
-    case 'ArrowRight': renderer.rotateCamera(step,  'y'); e.preventDefault(); break;
+    case 'ArrowUp':    renderer.rotateCamera(step,  'x'); e.preventDefault(); break;
+    case 'ArrowDown':  renderer.rotateCamera(-step, 'x'); e.preventDefault(); break;
+    case 'ArrowLeft':  renderer.rotateCamera(step,  'y'); e.preventDefault(); break;
+    case 'ArrowRight': renderer.rotateCamera(-step, 'y'); e.preventDefault(); break;
     case '+': case '=': renderer.zoom(1 - getStepZoom()); e.preventDefault(); break;
     case '-':           renderer.zoom(1 + getStepZoom()); e.preventDefault(); break;
     case 'Escape':
@@ -291,9 +291,10 @@ const bondsProps = document.getElementById('bonds-props')!;
 
 function initTogglePanel(toggle: HTMLElement, content: HTMLElement, label: string) {
   toggle.addEventListener('click', () => {
-    const open = content.style.display !== 'none';
-    content.style.display = open ? 'none' : 'flex';
-    toggle.innerHTML = open ? `${label} &#x25B6;` : `${label} &#x25BC;`;
+    const nowHidden = content.classList.toggle('hidden');
+    if (!nowHidden) content.style.display = 'flex';
+    else content.style.display = '';
+    toggle.innerHTML = nowHidden ? `${label} &#x25B6;` : `${label} &#x25BC;`;
   });
 }
 initTogglePanel(atomsToggle, atomsProps, 'Atoms');
@@ -411,6 +412,7 @@ window.addEventListener('message', (event) => {
       const isoInput = document.getElementById('iso-input') as HTMLInputElement;
       const range = renderer.getIsoRange();
       if (range) {
+        isoSection.classList.remove('hidden');
         isoSection.style.display = '';
         isoSlider.min = '0';
         isoSlider.max = String(range.max);
