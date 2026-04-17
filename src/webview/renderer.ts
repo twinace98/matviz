@@ -7,13 +7,14 @@ import type { ColorPalette } from '../shared/elements-palette';
 import type { DisplayStyle, CameraMode, BondStyle } from './message';
 import { marchingCubes } from './marchingCubes';
 import { AxisIndicator } from './axisIndicator';
+import { BondRenderer, type BondInfo } from './bondRenderer';
+import { SphereImpostorMesh, createImpostorMaterial } from './sphereImpostor';
+import { AtomPickingRenderer } from './picking';
 import type { VolumetricData } from '../parsers/types';
 
-interface BondInfo {
-  i: number;
-  j: number;
-  distance: number;
-}
+// CPU raycaster is faster for small scenes — only switch to GPU picking above
+// this threshold (where per-mesh raycast loops grow O(N)).
+const GPU_PICK_THRESHOLD = 5000;
 
 interface BondParams {
   min: number;
@@ -39,7 +40,17 @@ export class CrystalRenderer {
   private canvas: HTMLCanvasElement;
 
   private atomGroup = new THREE.Group();
-  private bondGroup = new THREE.Group();
+  private bondRenderer = new BondRenderer({
+    getElementColor: (el) => this.getElementColor(el),
+    getPhongMaterial: (color, shininess) => this.getMaterial(color, shininess),
+    getCylinderSegments: (n) => this.getCylinderSegments(n),
+    getUnicolorColor: () => this.paletteColors().bondUnicolor,
+    getImpostorEnabled: () => this.impostorEnabled,
+    registerImpostorMaterial: (mat) => {
+      this.bondImpostorMaterial = mat;
+      if (mat) mat.uniforms.uOrtho.value = (this.cameraMode === 'orthographic');
+    },
+  });
   private cellGroup = new THREE.Group();
   private labelGroup = new THREE.Group();
   private polyhedraGroup = new THREE.Group();
@@ -57,6 +68,9 @@ export class CrystalRenderer {
   private displayStyle: DisplayStyle = 'ball-and-stick';
   private bondStyle: BondStyle = 'bicolor';
   private interactionMode: 'navigate' | 'measure' = 'navigate';
+  private impostorEnabled = true;
+  private currentImpostorMaterial: THREE.ShaderMaterial | null = null;
+  private bondImpostorMaterial: THREE.ShaderMaterial | null = null;
 
   // Per-element user overrides
   private elementColorOverrides = new Map<string, string>();
@@ -104,6 +118,9 @@ export class CrystalRenderer {
   // Axis indicator (bottom-left inset)
   private axisIndicator = new AxisIndicator();
 
+  // GPU-based atom picking (used when expandedPositions.length >= GPU_PICK_THRESHOLD)
+  private pickingRenderer = new AtomPickingRenderer();
+
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
     this.scene = new THREE.Scene();
@@ -136,7 +153,7 @@ export class CrystalRenderer {
     dir2.position.set(-5, -5, -5);
     this.scene.add(ambient, dir1, dir2);
 
-    this.scene.add(this.atomGroup, this.bondGroup, this.cellGroup, this.labelGroup, this.polyhedraGroup, this.measureGroup, this.planeGroup, this.isoGroup);
+    this.scene.add(this.atomGroup, this.bondRenderer.group, this.cellGroup, this.labelGroup, this.polyhedraGroup, this.measureGroup, this.planeGroup, this.isoGroup);
     this.labelGroup.renderOrder = 999;
     this.labelGroup.visible = false;
     this.polyhedraGroup.visible = false;
@@ -184,11 +201,11 @@ export class CrystalRenderer {
 
   toggleBonds() {
     this.showBonds = !this.showBonds;
-    if (this.showBonds && this.bondGroup.children.length === 0 && this.cachedBonds.length > 0) {
+    if (this.showBonds && this.bondRenderer.group.children.length === 0 && this.cachedBonds.length > 0) {
       this.buildVisuals();
       return;
     }
-    this.bondGroup.visible = this.showBonds && this.displayStyle !== 'space-filling';
+    this.bondRenderer.setVisible(this.showBonds && this.displayStyle !== 'space-filling');
     this.requestRender();
   }
 
@@ -215,10 +232,22 @@ export class CrystalRenderer {
     (this.activeCamera as THREE.Camera).lookAt(this.controls.target);
     this.controls.object = this.activeCamera;
     this.controls.update();
+    const orthoNow = (mode === 'orthographic');
+    if (this.currentImpostorMaterial) this.currentImpostorMaterial.uniforms.uOrtho.value = orthoNow;
+    if (this.bondImpostorMaterial) this.bondImpostorMaterial.uniforms.uOrtho.value = orthoNow;
+    this.pickingRenderer.setOrtho(orthoNow);
     this.requestRender();
   }
 
   getCameraMode(): CameraMode { return this.cameraMode; }
+
+  setImpostorEnabled(enabled: boolean) {
+    if (enabled === this.impostorEnabled) return;
+    this.impostorEnabled = enabled;
+    if (this.structure) this.buildVisuals();
+  }
+
+  getImpostorEnabled(): boolean { return this.impostorEnabled; }
 
   toggleLabels() {
     this.showLabels = !this.showLabels;
@@ -599,6 +628,7 @@ export class CrystalRenderer {
     elementRadiusOverrides: { [k: string]: number };
     elementVisibility: { [k: string]: boolean };
     bondOverrides: { [pair: string]: { min: number; max: number; enabled: boolean } };
+    impostorEnabled: boolean;
   } {
     const pos = this.activeCamera.position;
     const target = this.controls.target;
@@ -625,6 +655,7 @@ export class CrystalRenderer {
       elementRadiusOverrides: Object.fromEntries(this.elementRadiusOverrides),
       elementVisibility: Object.fromEntries(this.elementVisibility),
       bondOverrides,
+      impostorEnabled: this.impostorEnabled,
     };
   }
 
@@ -648,6 +679,14 @@ export class CrystalRenderer {
       for (const [pair, p] of Object.entries(state.bondOverrides)) {
         this.bondParams.set(pair, { min: p.min, max: p.max, enabled: p.enabled });
       }
+    }
+    // Accept new boolean field; fall back to old tri-state for backwards compat.
+    if (typeof state.impostorEnabled === 'boolean') {
+      this.impostorEnabled = state.impostorEnabled;
+    } else {
+      const legacy = (state as unknown as { impostorMode?: string }).impostorMode;
+      if (legacy === 'off') this.impostorEnabled = false;
+      else if (legacy === 'on' || legacy === 'auto') this.impostorEnabled = true;
     }
 
     if (state.cameraMode !== this.cameraMode) {
@@ -894,6 +933,23 @@ export class CrystalRenderer {
     this.renderRequested = false;
     this.controls.update();
 
+    if (this.currentImpostorMaterial || this.bondImpostorMaterial) {
+      // Transform the scene's two directional lights into view space so
+      // impostor shading follows the same lights as Phong atoms/bonds.
+      const worldLight = new THREE.Vector3(5, 10, 7).normalize();
+      const viewLight = worldLight.clone().transformDirection(this.activeCamera.matrixWorldInverse);
+      const worldFill = new THREE.Vector3(-5, -5, -5).normalize();
+      const viewFill = worldFill.clone().transformDirection(this.activeCamera.matrixWorldInverse);
+      if (this.currentImpostorMaterial) {
+        this.currentImpostorMaterial.uniforms.uLightDir.value.copy(viewLight);
+        this.currentImpostorMaterial.uniforms.uLightDirFill.value.copy(viewFill);
+      }
+      if (this.bondImpostorMaterial) {
+        this.bondImpostorMaterial.uniforms.uLightDir.value.copy(viewLight);
+        this.bondImpostorMaterial.uniforms.uLightDirFill.value.copy(viewFill);
+      }
+    }
+
     // Main scene (full viewport)
     this.renderer.setViewport(0, 0, this.canvas.clientWidth, this.canvas.clientHeight);
     this.renderer.setScissorTest(false);
@@ -1005,25 +1061,35 @@ export class CrystalRenderer {
   private onCanvasClick(event: MouseEvent) {
     if (!this.structure || this.expandedPositions.length === 0) return;
 
-    const rect = this.canvas.getBoundingClientRect();
-    const mouse = new THREE.Vector2(
-      ((event.clientX - rect.left) / rect.width) * 2 - 1,
-      -((event.clientY - rect.top) / rect.height) * 2 + 1
-    );
-
-    this.raycaster.setFromCamera(mouse, this.activeCamera);
-
-    // Intersect all atom meshes
     let closestAtomIdx = -1;
-    let closestDist = Infinity;
 
-    for (const entry of this.atomMeshMap) {
-      const intersects = this.raycaster.intersectObject(entry.mesh);
-      if (intersects.length > 0 && intersects[0].instanceId !== undefined) {
-        const d = intersects[0].distance;
-        if (d < closestDist) {
-          closestDist = d;
-          closestAtomIdx = entry.globalIndices[intersects[0].instanceId];
+    if (this.expandedPositions.length >= GPU_PICK_THRESHOLD) {
+      closestAtomIdx = this.pickingRenderer.pickAt(
+        event.clientX,
+        event.clientY,
+        this.canvas,
+        this.activeCamera as THREE.PerspectiveCamera | THREE.OrthographicCamera,
+        this.renderer,
+      );
+    } else {
+      const rect = this.canvas.getBoundingClientRect();
+      const mouse = new THREE.Vector2(
+        ((event.clientX - rect.left) / rect.width) * 2 - 1,
+        -((event.clientY - rect.top) / rect.height) * 2 + 1
+      );
+
+      this.raycaster.setFromCamera(mouse, this.activeCamera);
+
+      // Intersect all atom meshes
+      let closestDist = Infinity;
+      for (const entry of this.atomMeshMap) {
+        const intersects = this.raycaster.intersectObject(entry.mesh);
+        if (intersects.length > 0 && intersects[0].instanceId !== undefined) {
+          const d = intersects[0].distance;
+          if (d < closestDist) {
+            closestDist = d;
+            closestAtomIdx = entry.globalIndices[intersects[0].instanceId];
+          }
         }
       }
     }
@@ -1140,6 +1206,17 @@ export class CrystalRenderer {
     const angle = Math.acos(Math.max(-1, Math.min(1, vBA.dot(vBC)))) * 180 / Math.PI;
     const objects: THREE.Object3D[] = [];
 
+    // Yellow dashed legs: A—B and B—C (matches distance-measurement style).
+    const lineMat = this.trackMat(new THREE.LineDashedMaterial({ color: 0xffff00, dashSize: 0.2, gapSize: 0.1 }));
+    for (const [p, q] of [[pA, pB], [pB, pC]] as const) {
+      const geo = new THREE.BufferGeometry().setFromPoints([p, q]);
+      this.geometries.push(geo);
+      const line = new THREE.Line(geo, lineMat);
+      line.computeLineDistances();
+      this.measureGroup.add(line);
+      objects.push(line);
+    }
+
     const label = this.createMeasurementLabel(`${angle.toFixed(1)}\u00B0`);
     label.position.copy(pB).add(new THREE.Vector3(0, 0.4, 0));
     this.measureGroup.add(label);
@@ -1163,6 +1240,22 @@ export class CrystalRenderer {
     const m = n1.clone().cross(b2.clone().normalize());
     const dihedral = Math.atan2(m.dot(n2), n1.dot(n2)) * 180 / Math.PI;
     const objects: THREE.Object3D[] = [];
+
+    // Two dihedral planes as dashed triangle outlines, different colors.
+    // Plane 1 = (1,2,3), plane 2 = (2,3,4); shared 2-3 edge shown in both colors.
+    const planes: [THREE.Vector3[], number][] = [
+      [[p1, p2, p3, p1], 0x00d4ff],  // cyan
+      [[p2, p3, p4, p2], 0xff3ec8],  // magenta
+    ];
+    for (const [pts, color] of planes) {
+      const geo = new THREE.BufferGeometry().setFromPoints(pts);
+      this.geometries.push(geo);
+      const mat = this.trackMat(new THREE.LineDashedMaterial({ color, dashSize: 0.2, gapSize: 0.1 }));
+      const line = new THREE.Line(geo, mat);
+      line.computeLineDistances();
+      this.measureGroup.add(line);
+      objects.push(line);
+    }
 
     const mid = p2.clone().lerp(p3, 0.5);
     const label = this.createMeasurementLabel(`${dihedral.toFixed(1)}\u00B0`);
@@ -1238,7 +1331,6 @@ export class CrystalRenderer {
 
   private buildVisuals() {
     this.clearGroup(this.atomGroup);
-    this.clearGroup(this.bondGroup);
     this.clearGroup(this.labelGroup);
     this.clearGroup(this.polyhedraGroup);
     this.atomMeshMap = [];
@@ -1249,18 +1341,14 @@ export class CrystalRenderer {
     const style = this.displayStyle;
 
     this.buildAtoms(species, positions, style, bonds);
+    this.pickingRenderer.rebuild(this.atomMeshMap, this.impostorEnabled, this.cameraMode === 'orthographic');
 
     if (style !== 'space-filling' && this.showBonds) {
-      if (style === 'wireframe') {
-        this.buildBondsWireframe(species, positions, bonds);
-      } else if (this.bondStyle === 'line') {
-        this.buildBondsWireframe(species, positions, bonds);
-      } else {
-        const bondRadius = style === 'stick' ? 0.15 : 0.08;
-        this.buildBondsCylinder(species, positions, bonds, bondRadius);
-      }
+      this.bondRenderer.rebuild(species, positions, bonds, this.bondStyle, style);
+    } else {
+      this.bondRenderer.rebuild(species, positions, [], this.bondStyle, style);
     }
-    this.bondGroup.visible = this.showBonds && style !== 'space-filling';
+    this.bondRenderer.setVisible(this.showBonds && style !== 'space-filling');
 
     if (this.showLabels) this.buildLabels();
     this.labelGroup.visible = this.showLabels;
@@ -1510,152 +1598,103 @@ export class CrystalRenderer {
       groups.get(s)!.push(i);
     }
 
-    const [ws, hs] = this.getSphereSegments(species.length);
-    const sphereGeo = new THREE.SphereGeometry(1, ws, hs);
-    this.geometries.push(sphereGeo);
-    const dummy = new THREE.Object3D();
+    const isWireframe = style === 'wireframe';
+    // Impostor only for solid-shaded styles — wireframe keeps the real sphere.
+    const useImpostor = !isWireframe && this.impostorEnabled;
 
-    for (const [element, indices] of groups) {
-      if (this.elementVisibility.get(element) === false) continue;
+    let sphereGeo: THREE.BufferGeometry | null = null;
+    let impostorMat: THREE.ShaderMaterial | null = null;
+    if (useImpostor) {
+      impostorMat = createImpostorMaterial();
+      impostorMat.uniforms.uOrtho.value = (this.cameraMode === 'orthographic');
+      this.trackMat(impostorMat);
+      this.currentImpostorMaterial = impostorMat;
+    } else {
+      const [ws, hs] = this.getSphereSegments(species.length);
+      sphereGeo = new THREE.SphereGeometry(1, ws, hs);
+      this.geometries.push(sphereGeo);
+      this.currentImpostorMaterial = null;
+    }
 
+    // Chunking: partition each element's instances into spatial bins so
+    // Three.js frustum culls off-screen chunks. Only worthwhile for big scenes.
+    const CHUNK_THRESHOLD = 5000;
+    const useChunks = species.length >= CHUNK_THRESHOLD;
+    const binAxis = species.length >= 20000 ? 3 : 2;
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    if (useChunks) {
+      for (const p of positions) {
+        if (p[0] < minX) minX = p[0]; if (p[0] > maxX) maxX = p[0];
+        if (p[1] < minY) minY = p[1]; if (p[1] > maxY) maxY = p[1];
+        if (p[2] < minZ) minZ = p[2]; if (p[2] > maxZ) maxZ = p[2];
+      }
+    }
+    const spanX = Math.max(maxX - minX, 1e-6);
+    const spanY = Math.max(maxY - minY, 1e-6);
+    const spanZ = Math.max(maxZ - minZ, 1e-6);
+
+    const emit = (indicesSubset: number[], element: string) => {
       const elData = getElement(element);
       const color = this.getElementColor(element);
       const customRadius = this.elementRadiusOverrides.get(element);
-      const isWireframe = style === 'wireframe';
-      const mat = isWireframe
-        ? this.getWireframeMaterial(color)
-        : this.getMaterial(color, 80);
-
-      const mesh = new THREE.InstancedMesh(sphereGeo, mat, indices.length);
-
-      for (let i = 0; i < indices.length; i++) {
-        const idx = indices[i];
+      let mesh: THREE.InstancedMesh;
+      if (useImpostor) {
+        mesh = new SphereImpostorMesh(indicesSubset.length, impostorMat!);
+      } else {
+        const mat = isWireframe
+          ? this.getWireframeMaterial(color)
+          : this.getMaterial(color, 80);
+        mesh = new THREE.InstancedMesh(sphereGeo!, mat, indicesSubset.length);
+      }
+      const dummy = new THREE.Object3D();
+      for (let i = 0; i < indicesSubset.length; i++) {
+        const idx = indicesSubset[i];
         const pos = positions[idx];
         dummy.position.set(pos[0], pos[1], pos[2]);
-
         let r: number;
         switch (style) {
           case 'space-filling': r = customRadius != null ? customRadius * 3 : elData.vdwRadius; break;
           case 'stick': r = customRadius ?? 0.15; break;
           default: r = customRadius ?? elData.displayRadius; break;
         }
-
         dummy.scale.set(r, r, r);
         dummy.updateMatrix();
         mesh.setMatrixAt(i, dummy.matrix);
       }
-
-      // Initialize instance colors for selection highlight support
       const baseCol = new THREE.Color(color);
-      for (let i = 0; i < indices.length; i++) {
-        mesh.setColorAt(i, baseCol);
-      }
+      for (let i = 0; i < indicesSubset.length; i++) mesh.setColorAt(i, baseCol);
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-
       mesh.instanceMatrix.needsUpdate = true;
-      this.atomGroup.add(mesh);
-      this.atomMeshMap.push({ mesh, globalIndices: indices, baseColor: baseCol });
-    }
-  }
-
-  // --- Bond building (cylinder) ---
-
-  private buildBondsCylinder(species: string[], positions: [number, number, number][], bonds: BondInfo[], radius: number) {
-    if (this.bondStyle === 'unicolor') {
-      this.buildBondsCylinderUnicolor(species, positions, bonds, radius);
-      return;
-    }
-
-    const bondHalves = new Map<string, { position: THREE.Vector3; target: THREE.Vector3; length: number }[]>();
-
-    for (const bond of bonds) {
-      const from = new THREE.Vector3(...positions[bond.i]);
-      const to = new THREE.Vector3(...positions[bond.j]);
-      const mid = from.clone().lerp(to, 0.5);
-      const halfLen = bond.distance / 2;
-
-      const colorA = this.getElementColor(species[bond.i]);
-      const colorB = this.getElementColor(species[bond.j]);
-
-      if (!bondHalves.has(colorA)) bondHalves.set(colorA, []);
-      bondHalves.get(colorA)!.push({ position: from, target: mid, length: halfLen });
-
-      if (!bondHalves.has(colorB)) bondHalves.set(colorB, []);
-      bondHalves.get(colorB)!.push({ position: mid, target: to, length: halfLen });
-    }
-
-    const cylSegments = this.getCylinderSegments(species.length);
-    const cylGeo = new THREE.CylinderGeometry(radius, radius, 1, cylSegments);
-    cylGeo.translate(0, 0.5, 0);
-    cylGeo.rotateX(Math.PI / 2);
-    this.geometries.push(cylGeo);
-
-    const dummy = new THREE.Object3D();
-    for (const [color, halves] of bondHalves) {
-      const mat = this.getMaterial(color, 40);
-      const instMesh = new THREE.InstancedMesh(cylGeo, mat, halves.length);
-      for (let i = 0; i < halves.length; i++) {
-        const h = halves[i];
-        dummy.position.copy(h.position);
-        dummy.scale.set(1, 1, h.length);
-        dummy.lookAt(h.target);
-        dummy.updateMatrix();
-        instMesh.setMatrixAt(i, dummy.matrix);
+      if (useChunks && !useImpostor) {
+        // InstancedMesh.computeBoundingSphere unions all instance positions.
+        // Impostor path sets frustumCulled=false (billboard quad isn't a real hit surface).
+        mesh.computeBoundingSphere();
       }
-      instMesh.instanceMatrix.needsUpdate = true;
-      this.bondGroup.add(instMesh);
+      this.atomGroup.add(mesh);
+      this.atomMeshMap.push({ mesh, globalIndices: indicesSubset, baseColor: baseCol });
+    };
+
+    for (const [element, indices] of groups) {
+      if (this.elementVisibility.get(element) === false) continue;
+
+      if (!useChunks) {
+        emit(indices, element);
+        continue;
+      }
+
+      const bins = new Map<string, number[]>();
+      for (const idx of indices) {
+        const p = positions[idx];
+        const bx = Math.min(binAxis - 1, Math.max(0, Math.floor((p[0] - minX) / spanX * binAxis)));
+        const by = Math.min(binAxis - 1, Math.max(0, Math.floor((p[1] - minY) / spanY * binAxis)));
+        const bz = Math.min(binAxis - 1, Math.max(0, Math.floor((p[2] - minZ) / spanZ * binAxis)));
+        const key = `${bx},${by},${bz}`;
+        let bucket = bins.get(key);
+        if (!bucket) { bucket = []; bins.set(key, bucket); }
+        bucket.push(idx);
+      }
+      for (const [, binIndices] of bins) emit(binIndices, element);
     }
-  }
-
-  private buildBondsCylinderUnicolor(species: string[], positions: [number, number, number][], bonds: BondInfo[], radius: number) {
-    const cylSegments = this.getCylinderSegments(species.length);
-    const cylGeo = new THREE.CylinderGeometry(radius, radius, 1, cylSegments);
-    cylGeo.translate(0, 0.5, 0);
-    cylGeo.rotateX(Math.PI / 2);
-    this.geometries.push(cylGeo);
-
-    const mat = this.getMaterial(this.paletteColors().bondUnicolor, 40);
-    const instMesh = new THREE.InstancedMesh(cylGeo, mat, bonds.length);
-    const dummy = new THREE.Object3D();
-
-    for (let i = 0; i < bonds.length; i++) {
-      const from = new THREE.Vector3(...positions[bonds[i].i]);
-      const to = new THREE.Vector3(...positions[bonds[i].j]);
-      dummy.position.copy(from);
-      dummy.scale.set(1, 1, bonds[i].distance);
-      dummy.lookAt(to);
-      dummy.updateMatrix();
-      instMesh.setMatrixAt(i, dummy.matrix);
-    }
-    instMesh.instanceMatrix.needsUpdate = true;
-    this.bondGroup.add(instMesh);
-  }
-
-  // --- Bond building (wireframe lines) ---
-
-  private buildBondsWireframe(species: string[], positions: [number, number, number][], bonds: BondInfo[]) {
-    const pts: number[] = [];
-    const colors: number[] = [];
-
-    for (const bond of bonds) {
-      const from = positions[bond.i];
-      const to = positions[bond.j];
-      const mid = [(from[0] + to[0]) / 2, (from[1] + to[1]) / 2, (from[2] + to[2]) / 2];
-      const cA = new THREE.Color(this.getElementColor(species[bond.i]));
-      const cB = new THREE.Color(this.getElementColor(species[bond.j]));
-
-      pts.push(from[0], from[1], from[2], mid[0], mid[1], mid[2]);
-      colors.push(cA.r, cA.g, cA.b, cA.r, cA.g, cA.b);
-      pts.push(mid[0], mid[1], mid[2], to[0], to[1], to[2]);
-      colors.push(cB.r, cB.g, cB.b, cB.r, cB.g, cB.b);
-    }
-
-    if (pts.length === 0) return;
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
-    geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-    this.geometries.push(geo);
-    this.bondGroup.add(new THREE.LineSegments(geo, this.trackMat(new THREE.LineBasicMaterial({ vertexColors: true }))));
   }
 
   // --- Polyhedra ---
@@ -1955,7 +1994,7 @@ export class CrystalRenderer {
 
   private disposeResources() {
     this.clearGroup(this.atomGroup);
-    this.clearGroup(this.bondGroup);
+    this.bondRenderer.dispose();
     this.clearGroup(this.cellGroup);
     this.clearGroup(this.labelGroup);
     this.clearGroup(this.polyhedraGroup);

@@ -120,6 +120,12 @@ if (styleSelect) {
   styleSelect.addEventListener('change', () => renderer.setDisplayStyle(styleSelect.value as DisplayStyle));
 }
 
+// Sphere impostor (inside Options section)
+const impostorCheck = document.getElementById('impostor-check') as HTMLInputElement;
+if (impostorCheck) {
+  impostorCheck.addEventListener('change', () => renderer.setImpostorEnabled(impostorCheck.checked));
+}
+
 // Camera toggle
 const cameraBtn = document.getElementById('camera-toggle') as HTMLButtonElement;
 if (cameraBtn) {
@@ -170,7 +176,7 @@ function setMode(mode: 'navigate' | 'measure') {
   renderer.setInteractionMode(mode);
   modeNavigate.classList.toggle('active', mode === 'navigate');
   modeMeasure.classList.toggle('active', mode === 'measure');
-  tooltip.style.display = 'none';
+  tooltip.classList.add('hidden');
 }
 
 if (modeNavigate) modeNavigate.addEventListener('click', () => setMode('navigate'));
@@ -270,7 +276,7 @@ window.addEventListener('keydown', (e) => {
       if (helpOverlay && !helpOverlay.classList.contains('hidden')) { hideHelp(); return; }
       renderer.clearSelection();
       renderer.clearMeasurements();
-      tooltip.style.display = 'none';
+      tooltip.classList.add('hidden');
       return;
   }
 });
@@ -278,7 +284,7 @@ window.addEventListener('keydown', (e) => {
 // --- Picking callbacks ---
 renderer.setAtomSelectCallback((data) => {
   if (data) {
-    tooltip.style.display = 'block';
+    tooltip.classList.remove('hidden');
     tooltip.style.left = '250px';
     tooltip.style.bottom = '8px';
     tooltip.style.top = 'auto';
@@ -288,13 +294,13 @@ renderer.setAtomSelectCallback((data) => {
       `Frac: (${f[0].toFixed(4)}, ${f[1].toFixed(4)}, ${f[2].toFixed(4)})`;
     vscode.postMessage({ type: 'atomSelected', data });
   } else {
-    tooltip.style.display = 'none';
+    tooltip.classList.add('hidden');
   }
 });
 
 renderer.setMeasurementCallback((data) => {
   const unit = data.type === 'distance' ? ' \u00C5' : '\u00B0';
-  tooltip.style.display = 'block';
+  tooltip.classList.remove('hidden');
   tooltip.innerHTML += `<br>${data.type}: ${data.value.toFixed(3)}${unit}`;
   vscode.postMessage({ type: 'measurement', data });
 });
@@ -325,7 +331,7 @@ function saveState() {
 const debouncedSave = debounce(saveState, 300);
 window.addEventListener('pointerup', debouncedSave);
 window.addEventListener('wheel', debouncedSave);
-[scA, scB, scC, styleSelect, stepAngleInput, stepZoomInput,
+[scA, scB, scC, styleSelect, impostorCheck, stepAngleInput, stepZoomInput,
   bondsCheck, labelsCheck, polyCheck, boundaryCheck, celldashCheck, axisSizeSlider]
   .forEach((el) => el?.addEventListener('change', debouncedSave));
 cameraBtn?.addEventListener('click', debouncedSave);
@@ -353,6 +359,7 @@ if (savedState && savedState.schemaVersion === 1) {
     scC.value = String(savedState.supercell[2]);
   }
   if (styleSelect && savedState.displayStyle) styleSelect.value = savedState.displayStyle;
+  if (impostorCheck) impostorCheck.checked = renderer.getImpostorEnabled();
   if (cameraBtn && savedState.cameraMode) {
     cameraBtn.textContent = savedState.cameraMode === 'orthographic' ? 'Ortho' : 'Persp';
     cameraBtn.classList.toggle('active', savedState.cameraMode === 'orthographic');
@@ -386,13 +393,15 @@ const bondsProps = document.getElementById('bonds-props')!;
 function initTogglePanel(toggle: HTMLElement, content: HTMLElement, label: string) {
   toggle.addEventListener('click', () => {
     const nowHidden = content.classList.toggle('hidden');
-    if (!nowHidden) content.style.display = 'flex';
-    else content.style.display = '';
     toggle.innerHTML = nowHidden ? `${label} &#x25B6;` : `${label} &#x25BC;`;
   });
 }
 initTogglePanel(atomsToggle, atomsProps, 'Atoms');
 initTogglePanel(bondsToggleBtn, bondsProps, 'Bonds');
+
+const optionsToggle = document.getElementById('options-toggle');
+const optionsProps = document.getElementById('options-props');
+if (optionsToggle && optionsProps) initTogglePanel(optionsToggle, optionsProps, 'Options');
 
 function buildAtomPropsUI() {
   atomsProps.innerHTML = '';

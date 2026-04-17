@@ -86,9 +86,9 @@ VESTA-inspired crystal structure viewer as a VSCode extension. Goal: provide com
 | 15.1 | Sphere impostors (billboard + fragment shader) | Pixel-perfect spheres, triangle count reduced 10x vs geometry spheres |
 | 15.2 | GPU-accelerated picking | Picking <5ms for 50k atoms |
 | 15.3 | Frustum culling for instanced meshes | No rendering of off-screen atoms |
-| 15.4 | WebGPU backend evaluation | Prototype renders on WebGPU; decision gate on whether to commit |
+| 15.4 | WebGPU backend evaluation ❌ rejected | 2026-04-18 cost/benefit review — GLSL shaders would need TSL port, WebGL2 path already optimized, CLI renderer tied to SwiftShader (WebGL2 only). Revisit when 50k+ structures actually bottleneck on WebGL2 or compute-shader redesign enters scope (v0.17+). |
 
-**Decision gate after 15.4**: WebGPU stable enough for production? If yes, migrate pipeline. If no, stay WebGL2 and revisit in 6 months.
+**Decision gate after 15.4**: ❌ **Rejected 2026-04-18** (without prototyping). Stay WebGL2. Reasons and revisit conditions in `plans/v0.15_advanced-rendering_impl.md` section 15.4.
 
 **Exit criterion**: 50k-atom structure renders at 30fps during rotation.
 
@@ -140,7 +140,7 @@ VESTA-inspired crystal structure viewer as a VSCode extension. Goal: provide com
 
 ## Critical decision gates
 
-1. **After 15.4 (WebGPU evaluation)** — pass criterion: WebGPU renders all test fixtures correctly with ≥30fps on Chrome. On fail: stay WebGL2, remove WebGPU code.
+1. **After 15.4 (WebGPU evaluation)** — ❌ Rejected 2026-04-18. No prototype built; decision based on cost/benefit review (GLSL-to-TSL port cost, already-optimized WebGL2 path, CLI renderer constraint). Revisit: when 50k+ structures actually bottleneck WebGL2 OR compute-shader redesign enters scope (v0.17+).
 2. **Before 18.4 (marketplace publishing)** — pass criterion: all test fixtures render correctly, no console errors, README accurate. On fail: fix before publishing.
 
 ---

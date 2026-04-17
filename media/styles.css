@@ -334,7 +334,7 @@ body.layout-offset #canvas {
 
 .sc-input.full-width { width: 100%; }
 
-.hidden { display: none; }
+.hidden { display: none !important; }
 
 .layout-toggle-row {
   display: flex;

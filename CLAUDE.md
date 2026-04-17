@@ -49,7 +49,7 @@ Or step by step:
 ```
 npm run build
 npx @vscode/vsce package --no-dependencies
-code --install-extension vscode-matviz-0.13.0.vsix --force
+code --install-extension vscode-matviz-0.15.0.vsix --force
 npm run install-skill   # copies skills/matviz-render/SKILL.md to ~/.claude/skills/
 ```
 

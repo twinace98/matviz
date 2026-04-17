@@ -1,7 +1,7 @@
 # Project Status
 
-- **Version**: v0.14.0 (released 2026-04-17) — UX polish: sidebar layout offset/overlay toggle, responsive toolbar (container queries), `?` shortcut modal, bond-skip hint + "Compute anyway", persistence schema v1 (panel + steps + overrides), AxisIndicator extraction, 16 k-atom stress fixture
-- **Phase**: v0.15 planning
+- **Version**: v0.15.0 (released 2026-04-18) — Advanced rendering: sphere + cylinder impostors, hybrid GPU picking (N≥5000), chunked InstancedMesh frustum culling, BondRenderer extraction. Angle/dihedral measurements now draw dashed lines.
+- **Phase**: v0.15 closed. v0.16 (extended crystallography) next.
 - **People**: Seungwoo Shin (twinace98)
 - **Repo**: https://github.com/twinace98/matviz.git
 
@@ -9,7 +9,7 @@
 
 1. Read in order: `CLAUDE.md` (architecture + workflow) → `Plan.md` (roadmap) → this file → active `plans/` pair if any.
 2. Auto-memory loads from `~/.claude/projects/-home-swshin-matviz/memory/`.
-3. **Next action**: v0.15 scoping — advanced rendering (sphere impostors, GPU picking, optional WebGPU path).
+3. **Next action**: v0.16 kickoff — thermal ellipsoids, partial occupancy, magnetic moment vectors. Before that: address v0.15 known issue — impostor rendering is visibly brighter than Phong path (shader tone/sRGB mapping mismatch); diagnose and fix as a v0.15.1 or fold into v0.16 kickoff.
 
 ## Completed
 
@@ -19,6 +19,7 @@
 - **v0.12** (2026-04-16): Rendering fixes, license cleanup, boundary wrap logic, stick style fix, bond defaults (`rA+rB+0.3`), adaptive top-bar, collapsible side panel, canvas sizing fix
 - **v0.13** (2026-04-16): Headless CLI renderer (`scripts/render.ts` → `dist/render.js`) via Puppeteer + SwiftShader; Claude skill `matviz-render`; XSF/CHGCAR isosurface axis-order hotfix (Fortran→C layout at parse time)
 - **v0.14.0** (2026-04-17): UX polish — sidebar layout modes (offset default, overlay preserved), responsive toolbar via CSS container queries, keyboard shortcut modal on `?`, bond-detection skip hint with "Compute anyway" for >5 000-atom structures, persisted state schema v1 (layout/panel/steps/visibility/element + bond overrides/iso/axis size), AxisIndicator component extracted to `src/webview/axisIndicator.ts`, 16 000-atom diamond stress fixture
+- **v0.15.0** (2026-04-18): Advanced rendering — BondRenderer module extracted from renderer.ts; sphere impostor (billboard quad + ray-sphere in fragment, gl_FragDepth); cylinder impostor for bonds (bicolor split at midpoint, ray-cylinder intersection); chunked InstancedMesh frustum culling (spatial binning per element); hybrid GPU picking (1×1 render target with camera.setViewOffset, N≥5000 threshold, CPU raycaster below); angle/dihedral measurements now draw yellow/cyan/magenta dashed outlines. WebGPU backend evaluation rejected (cost/benefit — revisit when compute-shader redesign enters scope). **Known issue**: impostor render appears slightly brighter/more saturated than Phong path; tracked for v0.15.1 or folded into v0.16 kickoff.
 - **v0.13.1** (2026-04-17): Hardening release — single-source element data (`src/shared/elements-data.ts`, 80 elements w/ lanthanide displayRadius fill), editor parse-error boundary with "Open as Text" fallback, ambiguous `.in/.out/.stdin/.stdout/.pw` editor priority lowered to `"option"` + title-bar "Open in MatViz" button, QE parser throws on empty parse instead of returning 10×10×10 default, renderer material registry disposes all inline `MeshPhong/MeshBasic/Line/Sprite` allocations, CLI renderer `try/finally` around browser lifecycle, webview CSP dropped `'unsafe-inline'` (inline styles → utility classes)
 
 ## Hotfixes

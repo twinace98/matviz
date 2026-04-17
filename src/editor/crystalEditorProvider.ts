@@ -294,6 +294,12 @@ export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvide
       </div>
       <div id="bonds-props" class="props-list hidden"></div>
     </div>
+    <div class="panel-section">
+      <div class="panel-label panel-label-toggle" id="options-toggle" title="Advanced rendering options">Options &#x25B6;</div>
+      <div id="options-props" class="toggle-group hidden">
+        <label class="toggle" title="Render atoms and bonds as shader-computed impostors on camera-facing quads (faster, always smooth). Disable to use tessellated sphere/cylinder geometry."><input type="checkbox" id="impostor-check" checked><span>Use impostor rendering (faster)</span></label>
+      </div>
+    </div>
   </div>
 
   <div id="tooltip" class="hidden"></div>
