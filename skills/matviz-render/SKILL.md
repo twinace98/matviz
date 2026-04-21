@@ -63,7 +63,8 @@ before reporting completion. Silent success is not success.
 | `--no-boundary` | flag | boundary on | Hide periodic-image atoms at cell edges |
 | `--no-cell` | flag | cell on | Hide unit-cell wireframe |
 | `--labels` | flag | off | Show element labels on atoms |
-| `--polyhedra` | flag | off | Show coordination polyhedra |
+| `--polyhedra` | flag | off | Show coordination polyhedra (auto-detects cation-like elements with max coordination 4–8) |
+| `--polyhedra-centers` | `El1,El2,…` | auto | Comma-separated elements used as polyhedra centers (e.g. `Ti,Fe`). Implies `--polyhedra`. |
 | `--iso` | number | off | Isosurface level (for Cube/CHGCAR/XSF with volumetric data) |
 | `--plane` | `h,k,l` | off | Add lattice plane |
 | `--test` | flag | — | Render a test scene (red sphere) for smoke-testing |

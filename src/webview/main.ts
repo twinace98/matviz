@@ -158,7 +158,10 @@ const boundaryCheck = document.getElementById('boundary-check') as HTMLInputElem
 
 if (bondsCheck) bondsCheck.addEventListener('change', () => renderer.toggleBonds());
 if (labelsCheck) labelsCheck.addEventListener('change', () => renderer.toggleLabels());
-if (polyCheck) polyCheck.addEventListener('change', () => renderer.togglePolyhedra());
+if (polyCheck) polyCheck.addEventListener('change', () => {
+  renderer.togglePolyhedra();
+  updatePolyCentersVisibility();
+});
 const celldashCheck = document.getElementById('celldash-check') as HTMLInputElement;
 
 if (boundaryCheck) boundaryCheck.addEventListener('change', () => renderer.toggleBoundaryAtoms());
@@ -371,7 +374,7 @@ if (savedState && savedState.schemaVersion === 1) {
   }
   if (bondsCheck) bondsCheck.checked = savedState.showBonds;
   if (labelsCheck) labelsCheck.checked = savedState.showLabels;
-  if (polyCheck) polyCheck.checked = !!savedState.showPolyhedra;
+  if (polyCheck) polyCheck.checked = false;
   if (boundaryCheck) boundaryCheck.checked = savedState.showBoundaryAtoms !== false;
   if (celldashCheck) celldashCheck.checked = savedState.showCellDash !== false;
   if (axisSizeSlider && typeof savedState.axisIndicatorSize === 'number') axisSizeSlider.value = String(savedState.axisIndicatorSize);
@@ -389,6 +392,9 @@ const atomsToggle = document.getElementById('atoms-toggle')!;
 const atomsProps = document.getElementById('atoms-props')!;
 const bondsToggleBtn = document.getElementById('bonds-toggle')!;
 const bondsProps = document.getElementById('bonds-props')!;
+const polyCentersSection = document.getElementById('poly-centers-section')!;
+const polyCentersToggle = document.getElementById('poly-centers-toggle')!;
+const polyCentersProps = document.getElementById('poly-centers-props')!;
 
 function initTogglePanel(toggle: HTMLElement, content: HTMLElement, label: string) {
   toggle.addEventListener('click', () => {
@@ -398,10 +404,43 @@ function initTogglePanel(toggle: HTMLElement, content: HTMLElement, label: strin
 }
 initTogglePanel(atomsToggle, atomsProps, 'Atoms');
 initTogglePanel(bondsToggleBtn, bondsProps, 'Bonds');
+initTogglePanel(polyCentersToggle, polyCentersProps, 'Polyhedra centers');
 
 const optionsToggle = document.getElementById('options-toggle');
 const optionsProps = document.getElementById('options-props');
 if (optionsToggle && optionsProps) initTogglePanel(optionsToggle, optionsProps, 'Options');
+
+function updatePolyCentersVisibility() {
+  const on = !!polyCheck?.checked;
+  polyCentersSection.classList.toggle('hidden', !on);
+}
+
+function buildPolyCentersUI() {
+  polyCentersProps.innerHTML = '';
+  const elements = renderer.getElements();
+  const active = new Set(renderer.getPolyhedraCenters());
+  for (const el of elements) {
+    const row = document.createElement('div');
+    row.className = 'prop-row';
+
+    const vis = document.createElement('input');
+    vis.type = 'checkbox';
+    vis.className = 'prop-vis';
+    vis.checked = active.has(el);
+    vis.addEventListener('change', () => {
+      const current = new Set(renderer.getPolyhedraCenters());
+      if (vis.checked) current.add(el); else current.delete(el);
+      renderer.setPolyhedraCenters([...current]);
+    });
+
+    const label = document.createElement('span');
+    label.className = 'prop-label';
+    label.textContent = el;
+
+    row.append(vis, label);
+    polyCentersProps.appendChild(row);
+  }
+}
 
 function buildAtomPropsUI() {
   atomsProps.innerHTML = '';
@@ -522,6 +561,8 @@ window.addEventListener('message', (event) => {
       }
       buildAtomPropsUI();
       buildBondPropsUI();
+      buildPolyCentersUI();
+      updatePolyCentersVisibility();
       updateBondSkipHint();
       break;
     }

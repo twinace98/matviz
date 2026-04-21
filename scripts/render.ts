@@ -42,6 +42,7 @@ interface RenderOptions {
   cell: boolean;
   labels: boolean;
   polyhedra: boolean;
+  polyhedraCenters: string[] | null;
   iso: number | null;
   plane: [number, number, number] | null;
   test: boolean;
@@ -65,6 +66,7 @@ function parseArgs(argv: string[]): RenderOptions {
     cell: true,
     labels: false,
     polyhedra: false,
+    polyhedraCenters: null,
     iso: null,
     plane: null,
     test: false,
@@ -92,6 +94,10 @@ function parseArgs(argv: string[]): RenderOptions {
       case '--no-cell': opts.cell = false; break;
       case '--labels': opts.labels = true; break;
       case '--polyhedra': opts.polyhedra = true; break;
+      case '--polyhedra-centers':
+        opts.polyhedraCenters = args[++i].split(',').map(s => s.trim()).filter(Boolean);
+        opts.polyhedra = true;
+        break;
       case '--iso': opts.iso = parseFloat(args[++i]); break;
       case '--plane': opts.plane = args[++i].split(',').map(Number) as [number, number, number]; break;
       case '-h': case '--help': printHelp(); process.exit(0);
@@ -131,7 +137,10 @@ Options:
   --no-boundary          Hide boundary atoms
   --no-cell              Hide cell wireframe
   --labels               Show atom labels
-  --polyhedra            Show coordination polyhedra
+  --polyhedra            Show coordination polyhedra (auto-selects elements with avg coord 4-8)
+  --polyhedra-centers <elements>
+                         Comma-separated element symbols used as polyhedra centers (e.g. Ti,Fe).
+                         Implies --polyhedra. Overrides auto-detection.
   --iso <level>          Isosurface level (volumetric data only)
   --plane <h,k,l>        Add lattice plane
   --test                 Render test scene (red sphere)
@@ -189,7 +198,7 @@ function generateStructureHTML(opts: RenderOptions, structureJSON: string, volum
 <canvas id="c" width="${opts.width}" height="${opts.height}"></canvas>
 <script type="module">
 import * as THREE from '${threeURL}';
-import { marchingCubes } from '${helpersURL}';
+import { marchingCubes, ConvexGeometry } from '${helpersURL}';
 
 const W = ${opts.width}, H = ${opts.height};
 const canvas = document.getElementById('c');
@@ -212,6 +221,7 @@ const OPTS = ${JSON.stringify({
     cell: opts.cell,
     labels: opts.labels,
     polyhedra: opts.polyhedra,
+    polyhedraCenters: opts.polyhedraCenters,
     iso: opts.iso,
     plane: opts.plane,
   })};
@@ -585,44 +595,83 @@ if (OPTS.labels) {
 
 // --- Coordination polyhedra ---
 if (OPTS.polyhedra && bonds.length > 0) {
-  const adj = new Map();
+  const adjD = new Map(); // atomIdx → [{idx, dist}]
   for (const bond of bonds) {
-    if (!adj.has(bond.i)) adj.set(bond.i, []);
-    if (!adj.has(bond.j)) adj.set(bond.j, []);
-    adj.get(bond.i).push(bond.j);
-    adj.get(bond.j).push(bond.i);
+    if (!adjD.has(bond.i)) adjD.set(bond.i, []);
+    if (!adjD.has(bond.j)) adjD.set(bond.j, []);
+    adjD.get(bond.i).push({ idx: bond.j, dist: bond.dist });
+    adjD.get(bond.j).push({ idx: bond.i, dist: bond.dist });
   }
-  for (const [center, nbrIdx] of adj) {
-    if (nbrIdx.length < 4) continue;
-    const centerPos = new THREE.Vector3(...positions[center]);
-    const verts = nbrIdx.map(n => new THREE.Vector3(...positions[n]));
-    const n = verts.length;
-    const tris = [];
-    const norms = [];
-    for (let i = 0; i < n; i++) {
-      for (let j = i+1; j < n; j++) {
-        for (let k = j+1; k < n; k++) {
-          const a = verts[i], b = verts[j], c = verts[k];
-          const normal = b.clone().sub(a).cross(c.clone().sub(a)).normalize();
-          const toCenter = centerPos.clone().sub(a).normalize();
-          if (normal.dot(toCenter) > 0) normal.negate();
-          let isFace = true;
-          for (let l = 0; l < n; l++) {
-            if (l === i || l === j || l === k) continue;
-            const d = verts[l].clone().sub(a).dot(normal);
-            if (d > 0.1) { isFace = false; break; }
-          }
-          if (isFace) {
-            tris.push(a.x,a.y,a.z, b.x,b.y,b.z, c.x,c.y,c.z);
-            for (let m = 0; m < 3; m++) norms.push(normal.x, normal.y, normal.z);
-          }
-        }
-      }
+  const TOL = 1.2;
+
+  // Resolve centers: explicit list from --polyhedra-centers, else auto-detect
+  // via first-coordination-shell (see matching comment in webview renderer).
+  let centerSet;
+  if (OPTS.polyhedraCenters && OPTS.polyhedraCenters.length > 0) {
+    centerSet = new Set(OPTS.polyhedraCenters);
+  } else {
+    const atomsByEl = new Map();
+    for (const atomIdx of adjD.keys()) {
+      const el = species[atomIdx];
+      if (!atomsByEl.has(el)) atomsByEl.set(el, []);
+      atomsByEl.get(el).push(atomIdx);
     }
-    if (tris.length === 0) continue;
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(tris, 3));
-    geo.setAttribute('normal', new THREE.Float32BufferAttribute(norms, 3));
+    centerSet = new Set();
+    for (const [el, idxs] of atomsByEl) {
+      let maxCoord = 0;
+      const ligandTotals = new Map();
+      let total = 0;
+      for (const atomIdx of idxs) {
+        const nbrs = adjD.get(atomIdx);
+        if (!nbrs || nbrs.length === 0) continue;
+        // Compute the nearest *heteroatomic* neighbor distance; this keeps
+        // boundary atoms that only see same-element images from polluting
+        // the ligand tally (e.g. rutile Ti at the corner with Ti-Ti at
+        // 2.96 Å but no O in range).
+        let minDist = Infinity;
+        for (const n of nbrs) if (species[n.idx] !== el && n.dist < minDist) minDist = n.dist;
+        if (!isFinite(minDist)) continue;
+        const cut = minDist * TOL;
+        let shellCount = 0;
+        for (const n of nbrs) {
+          if (n.dist > cut) continue;
+          const nEl = species[n.idx];
+          ligandTotals.set(nEl, (ligandTotals.get(nEl) || 0) + 1);
+          total++;
+          shellCount++;
+        }
+        if (shellCount > maxCoord) maxCoord = shellCount;
+      }
+      if (maxCoord < 4 || maxCoord > 8) continue;
+      if (total === 0) continue;
+      let domEl = '', domC = 0;
+      for (const [e, c] of ligandTotals) if (c > domC) { domC = c; domEl = e; }
+      if (domEl === el) continue;
+      if (domC / total >= 0.85) centerSet.add(el);
+    }
+  }
+
+  for (const [center, nbrList] of adjD) {
+    const el = species[center];
+    if (!centerSet.has(el)) continue;
+    if (!nbrList || nbrList.length === 0) continue;
+    let minDist = Infinity;
+    for (const n of nbrList) if (species[n.idx] !== el && n.dist < minDist) minDist = n.dist;
+    if (!isFinite(minDist)) continue;
+    const cut = minDist * TOL;
+    const shell = nbrList.filter(n => n.dist <= cut && species[n.idx] !== el);
+    if (shell.length < 4) continue;
+    const verts = shell.map(n => new THREE.Vector3(...positions[n.idx]));
+
+    let geo;
+    try {
+      geo = new ConvexGeometry(verts);
+    } catch {
+      continue;
+    }
+    const posAttr = geo.getAttribute('position');
+    if (!posAttr || posAttr.count < 3) { geo.dispose(); continue; }
+
     const color = new THREE.Color(getColor(species[center]));
     const mat = new THREE.MeshPhongMaterial({
       color, transparent: true, opacity: 0.4, side: THREE.DoubleSide, shininess: 30,

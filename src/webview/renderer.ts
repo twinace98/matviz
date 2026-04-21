@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { ConvexGeometry } from 'three/examples/jsm/geometries/ConvexGeometry.js';
 import { CrystalStructure } from '../parsers/types';
 import { getElement } from '../shared/elements-data';
 import { getElementPaletteColor, getPaletteLineColors } from '../shared/elements-palette';
@@ -77,6 +78,12 @@ export class CrystalRenderer {
   private elementRadiusOverrides = new Map<string, number>();
   private elementVisibility = new Map<string, boolean>();
   private colorPalette: ColorPalette = 'dark';
+
+  // Which element symbols are drawn as polyhedra centers (empty ⇒ nothing to draw).
+  // Populated automatically on structure load (auto-detect cation-like 4–8-coord
+  // elements) unless restored from saved state.
+  private polyhedraCenters = new Set<string>();
+  private polyhedraCentersUserSet = false;
 
   // On-demand rendering
   private renderRequested = false;
@@ -629,6 +636,7 @@ export class CrystalRenderer {
     elementVisibility: { [k: string]: boolean };
     bondOverrides: { [pair: string]: { min: number; max: number; enabled: boolean } };
     impostorEnabled: boolean;
+    polyhedraCenters: string[];
   } {
     const pos = this.activeCamera.position;
     const target = this.controls.target;
@@ -656,6 +664,7 @@ export class CrystalRenderer {
       elementVisibility: Object.fromEntries(this.elementVisibility),
       bondOverrides,
       impostorEnabled: this.impostorEnabled,
+      polyhedraCenters: [...this.polyhedraCenters],
     };
   }
 
@@ -664,7 +673,8 @@ export class CrystalRenderer {
     this.displayStyle = state.displayStyle;
     this.showBonds = state.showBonds;
     this.showLabels = state.showLabels;
-    if (typeof state.showPolyhedra === 'boolean') this.showPolyhedra = state.showPolyhedra;
+    // showPolyhedra intentionally NOT restored — always starts off on file
+    // init; user opts in per session.
     if (typeof state.showBoundaryAtoms === 'boolean') this.showBoundaryAtoms = state.showBoundaryAtoms;
     if (typeof state.showCellDash === 'boolean') this.showCellDash = state.showCellDash;
     this.supercell = state.supercell;
@@ -687,6 +697,11 @@ export class CrystalRenderer {
       const legacy = (state as unknown as { impostorMode?: string }).impostorMode;
       if (legacy === 'off') this.impostorEnabled = false;
       else if (legacy === 'on' || legacy === 'auto') this.impostorEnabled = true;
+    }
+
+    if (Array.isArray(state.polyhedraCenters) && state.polyhedraCenters.length > 0) {
+      this.polyhedraCenters = new Set(state.polyhedraCenters);
+      this.polyhedraCentersUserSet = true;
     }
 
     if (state.cameraMode !== this.cameraMode) {
@@ -1305,6 +1320,9 @@ export class CrystalRenderer {
     // Detect bonds (cached for style switching)
     this.cachedBonds = this.detectBonds(species, positions);
 
+    // Auto-populate polyhedra centers on first load (unless user/state already set them)
+    if (!this.polyhedraCentersUserSet) this.autoDetectPolyhedraCenters();
+
     // Build unit cell wireframe
     this.buildUnitCell(struct.lattice);
 
@@ -1699,85 +1717,150 @@ export class CrystalRenderer {
 
   // --- Polyhedra ---
 
-  private buildPolyhedra() {
-    this.clearGroup(this.polyhedraGroup);
-    if (this.cachedBonds.length === 0) return;
+  getPolyhedraCenters(): string[] {
+    return [...this.polyhedraCenters];
+  }
 
-    // Build adjacency list
-    const neighbors = new Map<number, number[]>();
-    for (const bond of this.cachedBonds) {
-      if (!neighbors.has(bond.i)) neighbors.set(bond.i, []);
-      if (!neighbors.has(bond.j)) neighbors.set(bond.j, []);
-      neighbors.get(bond.i)!.push(bond.j);
-      neighbors.get(bond.j)!.push(bond.i);
-    }
-
-    // Find atoms with 4+ neighbors (potential polyhedra centers)
-    for (const [center, nbrs] of neighbors) {
-      if (nbrs.length < 4) continue;
-
-      const centerPos = new THREE.Vector3(...this.expandedPositions[center]);
-      const nbrPositions = nbrs.map(n => new THREE.Vector3(...this.expandedPositions[n]));
-
-      // Simple convex hull via triangle faces
-      if (nbrPositions.length >= 4) {
-        this.addPolyhedron(centerPos, nbrPositions, this.expandedSpecies[center]);
-      }
+  setPolyhedraCenters(elements: string[]) {
+    this.polyhedraCenters = new Set(elements);
+    this.polyhedraCentersUserSet = true;
+    if (this.showPolyhedra) {
+      this.buildPolyhedra();
+      this.requestRender();
     }
   }
 
-  private addPolyhedron(center: THREE.Vector3, vertices: THREE.Vector3[], element: string) {
-    // Create geometry from vertex positions using convex hull approximation
-    // For tetrahedra (4) and octahedra (6) this is straightforward
-    const n = vertices.length;
-    if (n < 4) return;
+  /**
+   * Auto-select polyhedra centers using first-coordination-shell analysis:
+   *   For each atom, take only neighbors within 1.2× the nearest-neighbor
+   *   distance (the "first shell"). Aggregate first-shell ligands across
+   *   all atoms of element E. Keep E if:
+   *     • max first-shell coord ∈ [4, 8]
+   *     • the aggregated dominant ligand element ≠ E AND makes up ≥ 0.85
+   *
+   * First-shell cutoff avoids over-aggressive cation-cation "bonds" that
+   * default bond detection emits at typical ionic distances (e.g. Sr-Ti
+   * at 3.38 Å in perovskite). It also captures mixed-ligand anions as
+   * bridging: O in ABO3 has 2 B neighbors at 1.95 Å but Sr at 2.76 Å is
+   * outside 1.2×1.95 = 2.34 → first-shell coord = 2 → excluded by [4,8].
+   */
+  private autoDetectPolyhedraCenters() {
+    this.polyhedraCenters.clear();
+    if (this.cachedBonds.length === 0) return;
 
-    const positions: number[] = [];
-    const normals: number[] = [];
-
-    // Generate triangular faces by connecting all triplets of vertices
-    // that form outward-facing triangles relative to center
-    for (let i = 0; i < n; i++) {
-      for (let j = i + 1; j < n; j++) {
-        for (let k = j + 1; k < n; k++) {
-          const a = vertices[i];
-          const b = vertices[j];
-          const c = vertices[k];
-          const normal = b.clone().sub(a).cross(c.clone().sub(a)).normalize();
-          const toCenter = center.clone().sub(a).normalize();
-
-          // Face should point away from center
-          if (normal.dot(toCenter) > 0) normal.negate();
-
-          // Check if this triangle is a face (no other vertex is on the outside)
-          let isFace = true;
-          for (let l = 0; l < n; l++) {
-            if (l === i || l === j || l === k) continue;
-            const d = vertices[l].clone().sub(a).dot(normal);
-            if (d > 0.1) { isFace = false; break; }
-          }
-
-          if (isFace) {
-            if (normal.dot(toCenter) > 0) {
-              // Flip winding
-              positions.push(a.x, a.y, a.z, c.x, c.y, c.z, b.x, b.y, b.z);
-            } else {
-              positions.push(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z);
-            }
-            const faceNormal = normal.dot(toCenter) > 0 ? normal.clone().negate() : normal;
-            normals.push(faceNormal.x, faceNormal.y, faceNormal.z);
-            normals.push(faceNormal.x, faceNormal.y, faceNormal.z);
-            normals.push(faceNormal.x, faceNormal.y, faceNormal.z);
-          }
-        }
-      }
+    const neighbors = new Map<number, { idx: number; dist: number }[]>();
+    for (const bond of this.cachedBonds) {
+      if (!neighbors.has(bond.i)) neighbors.set(bond.i, []);
+      if (!neighbors.has(bond.j)) neighbors.set(bond.j, []);
+      neighbors.get(bond.i)!.push({ idx: bond.j, dist: bond.distance });
+      neighbors.get(bond.j)!.push({ idx: bond.i, dist: bond.distance });
     }
 
-    if (positions.length === 0) return;
+    const atomsByElement = new Map<string, number[]>();
+    for (const atomIdx of neighbors.keys()) {
+      const el = this.expandedSpecies[atomIdx];
+      if (!atomsByElement.has(el)) atomsByElement.set(el, []);
+      atomsByElement.get(el)!.push(atomIdx);
+    }
 
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+    const FIRST_SHELL_TOL = 1.2;
+
+    for (const [el, atomIdxs] of atomsByElement) {
+      let maxCoord = 0;
+      const ligandTotals = new Map<string, number>();
+      let totalNbrs = 0;
+
+      for (const atomIdx of atomIdxs) {
+        const nbrs = neighbors.get(atomIdx)!;
+        if (nbrs.length === 0) continue;
+        // Nearest heteroatomic neighbor — skips boundary atoms that only
+        // see same-element periodic images, which would otherwise dilute
+        // the ligand tally.
+        let minDist = Infinity;
+        for (const n of nbrs) {
+          if (this.expandedSpecies[n.idx] !== el && n.dist < minDist) minDist = n.dist;
+        }
+        if (!isFinite(minDist)) continue;
+        const shellCut = minDist * FIRST_SHELL_TOL;
+
+        let shellCount = 0;
+        for (const n of nbrs) {
+          if (n.dist > shellCut) continue;
+          const nEl = this.expandedSpecies[n.idx];
+          ligandTotals.set(nEl, (ligandTotals.get(nEl) ?? 0) + 1);
+          totalNbrs++;
+          shellCount++;
+        }
+        if (shellCount > maxCoord) maxCoord = shellCount;
+      }
+
+      if (maxCoord < 4 || maxCoord > 8) continue;
+      if (totalNbrs === 0) continue;
+
+      let dominantEl = '';
+      let dominantCount = 0;
+      for (const [nEl, count] of ligandTotals) {
+        if (count > dominantCount) { dominantCount = count; dominantEl = nEl; }
+      }
+      if (dominantEl === el) continue;
+      if (dominantCount / totalNbrs >= 0.85) this.polyhedraCenters.add(el);
+    }
+  }
+
+  private buildPolyhedra() {
+    this.clearGroup(this.polyhedraGroup);
+    if (this.cachedBonds.length === 0) return;
+    if (this.polyhedraCenters.size === 0) return;
+
+    const neighbors = new Map<number, { idx: number; dist: number }[]>();
+    for (const bond of this.cachedBonds) {
+      if (!neighbors.has(bond.i)) neighbors.set(bond.i, []);
+      if (!neighbors.has(bond.j)) neighbors.set(bond.j, []);
+      neighbors.get(bond.i)!.push({ idx: bond.j, dist: bond.distance });
+      neighbors.get(bond.j)!.push({ idx: bond.i, dist: bond.distance });
+    }
+
+    const FIRST_SHELL_TOL = 1.2;
+
+    for (const [center, nbrs] of neighbors) {
+      const element = this.expandedSpecies[center];
+      if (!this.polyhedraCenters.has(element)) continue;
+      if (nbrs.length === 0) continue;
+
+      // Use nearest heteroatomic neighbor so boundary atoms don't draw
+      // phantom "polyhedra" from their same-element periodic images.
+      let minDist = Infinity;
+      for (const n of nbrs) {
+        if (this.expandedSpecies[n.idx] !== element && n.dist < minDist) minDist = n.dist;
+      }
+      if (!isFinite(minDist)) continue;
+      const shellCut = minDist * FIRST_SHELL_TOL;
+
+      const shell = nbrs.filter(n => n.dist <= shellCut && this.expandedSpecies[n.idx] !== element);
+      if (shell.length < 4) continue;
+
+      const nbrPositions = shell.map(n => new THREE.Vector3(...this.expandedPositions[n.idx]));
+      this.addPolyhedron(nbrPositions, element);
+    }
+  }
+
+  private addPolyhedron(vertices: THREE.Vector3[], element: string) {
+    if (vertices.length < 4) return;
+
+    let geo: ConvexGeometry;
+    try {
+      geo = new ConvexGeometry(vertices);
+    } catch {
+      // ConvexHull throws on degenerate (all-coplanar) point sets; skip
+      return;
+    }
+
+    const posAttr = geo.getAttribute('position');
+    if (!posAttr || posAttr.count < 3) {
+      geo.dispose();
+      return;
+    }
+
     this.geometries.push(geo);
 
     const color = new THREE.Color(this.getElementColor(element));
@@ -1790,7 +1873,6 @@ export class CrystalRenderer {
     }));
     this.polyhedraGroup.add(new THREE.Mesh(geo, mat));
 
-    // Edge outlines
     const edgesGeo = new THREE.EdgesGeometry(geo);
     this.geometries.push(edgesGeo);
     const edgesMat = this.trackMat(new THREE.LineBasicMaterial({ color: color.clone().multiplyScalar(0.6) }));

@@ -286,6 +286,10 @@ export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvide
       <div class="panel-label panel-label-toggle" id="atoms-toggle" title="Expand per-element color / radius / visibility overrides">Atoms &#x25B6;</div>
       <div id="atoms-props" class="props-list hidden"></div>
     </div>
+    <div class="panel-section hidden" id="poly-centers-section">
+      <div class="panel-label panel-label-toggle" id="poly-centers-toggle" title="Choose which element's atoms become polyhedra centers">Polyhedra centers &#x25B6;</div>
+      <div id="poly-centers-props" class="props-list hidden"></div>
+    </div>
     <div class="panel-section">
       <div class="panel-label panel-label-toggle" id="bonds-toggle" title="Expand per-pair bond cutoff settings">Bonds &#x25B6;</div>
       <div id="bond-skip-hint" class="bond-skip-hint hidden">
