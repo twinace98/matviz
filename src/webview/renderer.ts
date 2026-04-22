@@ -10,6 +10,7 @@ import { marchingCubes, marchingSquaresFill, tileVolumetricPBC } from './marchin
 import { AxisIndicator } from './axisIndicator';
 import { BondRenderer, type BondInfo } from './bondRenderer';
 import { SphereImpostorMesh, createImpostorMaterial } from './sphereImpostor';
+import { EllipsoidRenderer, type EllipsoidInstance, type ProbabilityContour } from './ellipsoidRenderer';
 import { AtomPickingRenderer } from './picking';
 import type { VolumetricData } from '../parsers/types';
 
@@ -72,6 +73,14 @@ export class CrystalRenderer {
   private impostorEnabled = true;
   private currentImpostorMaterial: THREE.ShaderMaterial | null = null;
   private bondImpostorMaterial: THREE.ShaderMaterial | null = null;
+
+  // 16.1 thermal ellipsoids — opt-in. Atoms with thermalAniso[i] != null AND
+  // showEllipsoids=true are routed through ellipsoidRenderer (Phong-only,
+  // separate InstancedMesh per element). Atoms without aniso, or all atoms
+  // when showEllipsoids=false, fall through to the regular sphere/impostor
+  // path.
+  private ellipsoidRenderer = new EllipsoidRenderer();
+  private showEllipsoids = false;
 
   // Per-element user overrides
   private elementColorOverrides = new Map<string, string>();
@@ -160,7 +169,7 @@ export class CrystalRenderer {
     dir2.position.set(-5, -5, -5);
     this.scene.add(ambient, dir1, dir2);
 
-    this.scene.add(this.atomGroup, this.bondRenderer.group, this.cellGroup, this.labelGroup, this.polyhedraGroup, this.measureGroup, this.planeGroup, this.isoGroup);
+    this.scene.add(this.atomGroup, this.bondRenderer.group, this.cellGroup, this.labelGroup, this.polyhedraGroup, this.measureGroup, this.planeGroup, this.isoGroup, this.ellipsoidRenderer.group);
     this.labelGroup.renderOrder = 999;
     this.labelGroup.visible = false;
     this.polyhedraGroup.visible = false;
@@ -255,6 +264,31 @@ export class CrystalRenderer {
   }
 
   getImpostorEnabled(): boolean { return this.impostorEnabled; }
+
+  // 16.1 thermal ellipsoids — toggle and probability-contour API.
+  setShowEllipsoids(enabled: boolean) {
+    if (enabled === this.showEllipsoids) return;
+    this.showEllipsoids = enabled;
+    if (this.structure) this.buildVisuals();
+  }
+
+  getShowEllipsoids(): boolean { return this.showEllipsoids; }
+
+  setProbabilityContour(c: ProbabilityContour) {
+    if (c === this.ellipsoidRenderer.getProbabilityContour()) return;
+    this.ellipsoidRenderer.setProbabilityContour(c);
+    if (this.structure && this.showEllipsoids) this.buildVisuals();
+  }
+
+  getProbabilityContour(): ProbabilityContour { return this.ellipsoidRenderer.getProbabilityContour(); }
+
+  /**
+   * Whether the loaded structure has any anisotropic-displacement data.
+   * Used by the UI to enable/disable the ellipsoid toggle.
+   */
+  hasThermalAniso(): boolean {
+    return !!this.structure?.thermalAniso?.some(u => u !== null);
+  }
 
   toggleLabels() {
     this.showLabels = !this.showLabels;
@@ -707,6 +741,8 @@ export class CrystalRenderer {
     bondOverrides: { [pair: string]: { min: number; max: number; enabled: boolean } };
     impostorEnabled: boolean;
     polyhedraCenters: string[];
+    showEllipsoids: boolean;
+    probabilityContour: ProbabilityContour;
   } {
     const pos = this.activeCamera.position;
     const target = this.controls.target;
@@ -735,6 +771,8 @@ export class CrystalRenderer {
       bondOverrides,
       impostorEnabled: this.impostorEnabled,
       polyhedraCenters: [...this.polyhedraCenters],
+      showEllipsoids: this.showEllipsoids,
+      probabilityContour: this.ellipsoidRenderer.getProbabilityContour(),
     };
   }
 
@@ -772,6 +810,14 @@ export class CrystalRenderer {
     if (Array.isArray(state.polyhedraCenters) && state.polyhedraCenters.length > 0) {
       this.polyhedraCenters = new Set(state.polyhedraCenters);
       this.polyhedraCentersUserSet = true;
+    }
+
+    // 16.1: showEllipsoids and probabilityContour are restored across sessions
+    // — unlike showPolyhedra which always resets to off. Anisotropic-data
+    // structures are intentionally opened with the user's last preference.
+    if (typeof state.showEllipsoids === 'boolean') this.showEllipsoids = state.showEllipsoids;
+    if (state.probabilityContour === 0.5 || state.probabilityContour === 0.9) {
+      this.ellipsoidRenderer.setProbabilityContour(state.probabilityContour);
     }
 
     if (state.cameraMode !== this.cameraMode) {
@@ -1682,8 +1728,33 @@ export class CrystalRenderer {
   // --- Atom building ---
 
   private buildAtoms(species: string[], positions: [number, number, number][], style: DisplayStyle, bonds: BondInfo[]) {
+    // 16.1 ellipsoid routing: when enabled and the structure carries
+    // thermalAniso, peel off atoms with non-null Uᵢⱼ from the regular sphere
+    // path and route them to ellipsoidRenderer. Phong is forced (impostor
+    // shader assumes uniform radius).
+    this.ellipsoidRenderer.clear();
+    const ellipsoidIdxSet = new Set<number>();
+    const ellipsoidGroups = new Map<string, EllipsoidInstance[]>();
+    const aniso = this.structure?.thermalAniso;
+    if (this.showEllipsoids && aniso && !style.startsWith('wire') && style !== 'stick') {
+      for (let i = 0; i < species.length; i++) {
+        const unitIdx = this.expandedUnitCellIndex[i] ?? i;
+        const u = aniso[unitIdx];
+        if (!u) continue;
+        if (this.elementVisibility.get(species[i]) === false) continue;
+        ellipsoidIdxSet.add(i);
+        const list = ellipsoidGroups.get(species[i]) ?? [];
+        if (list.length === 0) ellipsoidGroups.set(species[i], list);
+        list.push({ position: positions[i], uij: u });
+      }
+      if (ellipsoidGroups.size > 0) {
+        this.ellipsoidRenderer.rebuild(ellipsoidGroups, (el) => this.getElementColor(el));
+      }
+    }
+
     const groups = new Map<string, number[]>();
     for (let i = 0; i < species.length; i++) {
+      if (ellipsoidIdxSet.has(i)) continue;
       const s = species[i];
       if (!groups.has(s)) groups.set(s, []);
       groups.get(s)!.push(i);

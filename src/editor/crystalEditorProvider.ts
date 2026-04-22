@@ -282,6 +282,16 @@ export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvide
       <input type="range" id="iso-slider" class="iso-slider" min="0" max="1" step="0.001" value="0" title="Drag to change isosurface level (absolute value; negative lobe drawn automatically)">
       <input type="number" id="iso-input" class="sc-input full-width" step="any" value="0" title="Isosurface level (numeric entry)">
     </div>
+    <div class="panel-section hidden" id="ellipsoids-section">
+      <div class="panel-label" title="Anisotropic-displacement ellipsoids parsed from CIF _atom_site_aniso_*">Thermal ellipsoids</div>
+      <div class="toggle-group">
+        <label class="toggle" title="Render atoms with anisotropic displacement parameters as probability ellipsoids (Phong path forced)"><input type="checkbox" id="ellipsoids-check"><span>Show ellipsoids</span></label>
+      </div>
+      <div class="toggle-group" id="ellipsoid-contour-row" title="Probability contour level (χ²₃ table)">
+        <label class="toggle"><input type="radio" name="ellipsoid-contour" value="0.5" id="ellipsoid-contour-50" checked><span>50%</span></label>
+        <label class="toggle"><input type="radio" name="ellipsoid-contour" value="0.9" id="ellipsoid-contour-90"><span>90%</span></label>
+      </div>
+    </div>
     <div class="panel-section">
       <div class="panel-label panel-label-toggle" id="atoms-toggle" title="Expand per-element color / radius / visibility overrides">Atoms &#x25B6;</div>
       <div id="atoms-props" class="props-list hidden"></div>

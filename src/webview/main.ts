@@ -126,6 +126,33 @@ if (impostorCheck) {
   impostorCheck.addEventListener('change', () => renderer.setImpostorEnabled(impostorCheck.checked));
 }
 
+// 16.1 Thermal ellipsoids (hidden until structure with thermalAniso loads)
+const ellipsoidsCheck = document.getElementById('ellipsoids-check') as HTMLInputElement;
+const ellipsoidContour50 = document.getElementById('ellipsoid-contour-50') as HTMLInputElement;
+const ellipsoidContour90 = document.getElementById('ellipsoid-contour-90') as HTMLInputElement;
+if (ellipsoidsCheck) {
+  ellipsoidsCheck.addEventListener('change', () => renderer.setShowEllipsoids(ellipsoidsCheck.checked));
+}
+if (ellipsoidContour50) {
+  ellipsoidContour50.addEventListener('change', () => { if (ellipsoidContour50.checked) renderer.setProbabilityContour(0.5); });
+}
+if (ellipsoidContour90) {
+  ellipsoidContour90.addEventListener('change', () => { if (ellipsoidContour90.checked) renderer.setProbabilityContour(0.9); });
+}
+function updateEllipsoidsSectionVisibility() {
+  const section = document.getElementById('ellipsoids-section');
+  if (!section) return;
+  if (renderer.hasThermalAniso()) {
+    section.classList.remove('hidden');
+    if (ellipsoidsCheck) ellipsoidsCheck.checked = renderer.getShowEllipsoids();
+    const c = renderer.getProbabilityContour();
+    if (ellipsoidContour50) ellipsoidContour50.checked = (c === 0.5);
+    if (ellipsoidContour90) ellipsoidContour90.checked = (c === 0.9);
+  } else {
+    section.classList.add('hidden');
+  }
+}
+
 // Camera toggle
 const cameraBtn = document.getElementById('camera-toggle') as HTMLButtonElement;
 if (cameraBtn) {
@@ -335,7 +362,8 @@ const debouncedSave = debounce(saveState, 300);
 window.addEventListener('pointerup', debouncedSave);
 window.addEventListener('wheel', debouncedSave);
 [scA, scB, scC, styleSelect, impostorCheck, stepAngleInput, stepZoomInput,
-  bondsCheck, labelsCheck, polyCheck, boundaryCheck, celldashCheck, axisSizeSlider]
+  bondsCheck, labelsCheck, polyCheck, boundaryCheck, celldashCheck, axisSizeSlider,
+  ellipsoidsCheck, ellipsoidContour50, ellipsoidContour90]
   .forEach((el) => el?.addEventListener('change', debouncedSave));
 cameraBtn?.addEventListener('click', debouncedSave);
 paletteBtn?.addEventListener('click', debouncedSave);
@@ -564,6 +592,7 @@ window.addEventListener('message', (event) => {
       buildPolyCentersUI();
       updatePolyCentersVisibility();
       updateBondSkipHint();
+      updateEllipsoidsSectionVisibility();
       break;
     }
     case 'resetCamera': renderer.resetCamera(); break;
