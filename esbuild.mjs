@@ -70,6 +70,18 @@ const parserTestConfig = {
   sourcemap: false,
 };
 
+// 3×3 symmetric eigendecomposition test (16.1, 2/3). Verifies the inline
+// Jacobi solver used to convert Uᵢⱼ → ellipsoid principal axes.
+const symEigenTestConfig = {
+  entryPoints: ['scripts/test-symeigen.ts'],
+  bundle: true,
+  outfile: 'dist/test-symeigen.js',
+  format: 'cjs',
+  platform: 'node',
+  target: 'node18',
+  sourcemap: false,
+};
+
 if (watch) {
   const ctx1 = await esbuild.context(extensionConfig);
   const ctx2 = await esbuild.context(webviewConfig);
@@ -83,5 +95,6 @@ if (watch) {
   await esbuild.build(cliHelpersConfig);
   await esbuild.build(harnessConfig);
   await esbuild.build(parserTestConfig);
+  await esbuild.build(symEigenTestConfig);
   console.log('Build complete.');
 }
