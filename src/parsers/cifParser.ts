@@ -1,9 +1,32 @@
 import { CrystalStructure } from './types';
 
 /**
- * CIF parser with symmetry expansion support.
- * Handles _cell_length/angle, _atom_site_fract/Cartn, _symmetry_equiv_pos_as_xyz.
+ * CIF parser with symmetry expansion + anisotropic displacement support.
+ *
+ * Loop tracking (v0.16.1): the previous single-loop scheme dropped the atom
+ * loop's data when ANY subsequent loop appeared (e.g. an `_atom_site_aniso_*`
+ * loop after the atom loop). Refactored to accumulate every non-symmetry loop
+ * into `parsedLoops`; the asymmetric-unit and aniso loops are then resolved by
+ * column-name matching after the scan.
+ *
+ * Anisotropic displacement (16.1): `_atom_site_aniso_label` loop entries are
+ * matched to atom-site rows by the shared label. U-form (Å²) is preserved
+ * as-is; B-form (Å²) is converted via `U = B / (8 π²)`. Symmetry-expanded
+ * copies inherit the asymmetric atom's Uᵢⱼ *without* rotation by the symop
+ * (TODO 16.x: apply R · U · Rᵀ for non-identity symops). Visually accurate
+ * for diagonal-dominant U; off-axis U components mis-orient on non-trivial
+ * symops. Limitation documented in working log.
+ *
+ * Degenerate-cell guard (16.1): cellToLattice() throws if `sin(γ) < 1e-6` or
+ * any cell length is below 1e-9 Å, so the editor's parse-error boundary
+ * (v0.13.1) surfaces "Open as Text" instead of yielding NaN-laden positions.
  */
+
+interface CifLoop {
+  columns: string[];
+  rows: string[][];
+}
+
 export function parseCif(content: string): CrystalStructure {
   const lines = content.split('\n');
 
@@ -11,13 +34,23 @@ export function parseCif(content: string): CrystalStructure {
   let title = '';
   let spaceGroup = '';
 
-  const loopColumns: string[] = [];
-  const loopRows: string[][] = [];
-  let inLoop = false;
-  let inAtomLoop = false;
-
   const symmetryOps: string[] = [];
-  let inSymLoop = false;
+  const parsedLoops: CifLoop[] = [];
+
+  // Loop scanner state — tracks one in-progress loop at a time. On `loop_`
+  // the in-progress loop (if non-empty) is pushed to parsedLoops.
+  let currentLoop: CifLoop | null = null;
+  let inLoopHeader = false;     // we've seen `loop_` and are reading column lines
+  let isSymLoop = false;         // current loop is the symmetry-op loop (handled separately)
+
+  function finalizeLoop() {
+    if (currentLoop && currentLoop.columns.length > 0 && currentLoop.rows.length > 0) {
+      parsedLoops.push(currentLoop);
+    }
+    currentLoop = null;
+    inLoopHeader = false;
+    isSymLoop = false;
+  }
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
@@ -27,7 +60,7 @@ export function parseCif(content: string): CrystalStructure {
       continue;
     }
 
-    // Cell parameters
+    // Cell parameters (outside any loop)
     if (line.startsWith('_cell_length_a')) { a = parseCifFloat(line); continue; }
     if (line.startsWith('_cell_length_b')) { b = parseCifFloat(line); continue; }
     if (line.startsWith('_cell_length_c')) { c = parseCifFloat(line); continue; }
@@ -42,8 +75,8 @@ export function parseCif(content: string): CrystalStructure {
       continue;
     }
 
-    // Single symmetry op (non-loop)
-    if (line.startsWith('_symmetry_equiv_pos_as_xyz') && !inLoop) {
+    // Single (non-loop) symmetry op
+    if (line.startsWith('_symmetry_equiv_pos_as_xyz') && currentLoop === null) {
       const parts = line.split(/\s+/);
       if (parts.length > 1) {
         symmetryOps.push(parts.slice(1).join(' ').replace(/['"]/g, ''));
@@ -51,101 +84,112 @@ export function parseCif(content: string): CrystalStructure {
       continue;
     }
 
-    // Loop parsing
+    // Start a new loop
     if (line === 'loop_') {
-      if (inAtomLoop && loopRows.length > 0) {
-        inLoop = false;
-        inAtomLoop = false;
-      }
-      if (inSymLoop) {
-        inSymLoop = false;
-      }
-      inLoop = true;
-      if (!inAtomLoop || loopRows.length === 0) {
-        loopColumns.length = 0;
-        loopRows.length = 0;
-        inAtomLoop = false;
-      }
+      finalizeLoop();
+      currentLoop = { columns: [], rows: [] };
+      inLoopHeader = true;
       continue;
     }
 
-    if (inLoop && line.startsWith('_')) {
+    // Loop column declaration
+    if (currentLoop && inLoopHeader && line.startsWith('_')) {
       const col = line.split(/\s+/)[0];
       if (col === '_symmetry_equiv_pos_as_xyz' || col === '_space_group_symop_operation_xyz') {
-        inSymLoop = true;
+        isSymLoop = true;
       }
-      if (col.includes('_atom_site_')) {
-        inAtomLoop = true;
-        loopColumns.push(col);
-      } else if (inAtomLoop) {
-        // Different loop starting while we were in atom loop
-      } else if (!inSymLoop) {
-        loopColumns.push(col);
-      }
+      currentLoop.columns.push(col);
       continue;
     }
 
-    if (inLoop && !line.startsWith('_') && line.length > 0 && !line.startsWith('#')) {
-      if (inSymLoop) {
+    // Loop data row (or transition out of loop)
+    if (currentLoop && line.length > 0 && !line.startsWith('#')) {
+      // First non-`_` non-blank line transitions header → data
+      inLoopHeader = false;
+
+      if (isSymLoop) {
         // Parse symmetry operation: strip quotes, optional leading index number
         let op = line.replace(/['"]/g, '').trim();
-        // Remove leading integer index (e.g. "1 x,y,z" → "x,y,z")
-        op = op.replace(/^\d+\s+/, '');
+        op = op.replace(/^\d+\s+/, '');  // drop leading index e.g. "1 x,y,z" → "x,y,z"
         if (op.includes(',')) {
-          // Remove all spaces so "x, y, z" → "x,y,z"
           symmetryOps.push(op.replace(/\s/g, ''));
         }
         continue;
       }
 
-      if (inAtomLoop) {
-        const tokens = tokenizeCifLine(line);
-        if (tokens.length >= loopColumns.length) {
-          loopRows.push(tokens);
-        } else {
-          inLoop = false;
-        }
+      const tokens = tokenizeCifLine(line);
+      if (tokens.length >= currentLoop.columns.length) {
+        currentLoop.rows.push(tokens);
+      } else {
+        // Row width mismatch → end of this loop
+        finalizeLoop();
       }
       continue;
     }
 
-    if (inLoop && (line === '' || line.startsWith('#'))) {
-      if (inSymLoop) { inSymLoop = false; }
-      inLoop = false;
+    // Blank line or comment → if we were in a loop and have data, finalize
+    if (currentLoop && (line === '' || line.startsWith('#'))) {
+      // Only finalize when we've actually seen data; blank lines inside header
+      // (between column declarations) shouldn't kill the loop.
+      if (!inLoopHeader) {
+        finalizeLoop();
+      }
     }
   }
+  // EOF: finalize any open loop
+  finalizeLoop();
 
   const lattice = cellToLattice(a, b, c, alpha, beta, gamma);
 
-  const colIndex = (name: string) => loopColumns.indexOf(name);
-  const labelCol = colIndex('_atom_site_label');
-  const typeCol = colIndex('_atom_site_type_symbol');
-  const fracXCol = colIndex('_atom_site_fract_x');
-  const fracYCol = colIndex('_atom_site_fract_y');
-  const fracZCol = colIndex('_atom_site_fract_z');
-  const cartXCol = colIndex('_atom_site_Cartn_x');
-  const cartYCol = colIndex('_atom_site_Cartn_y');
-  const cartZCol = colIndex('_atom_site_Cartn_z');
+  // Find the atom-site loop (has at least one of the position columns) and the
+  // optional aniso loop. A CIF could in theory have multiple atom loops; we
+  // take the first match for each.
+  const atomLoop = parsedLoops.find(L =>
+    L.columns.includes('_atom_site_label') ||
+    L.columns.includes('_atom_site_fract_x') ||
+    L.columns.includes('_atom_site_Cartn_x')
+  );
+  const anisoLoop = parsedLoops.find(L =>
+    L.columns.includes('_atom_site_aniso_label')
+  );
+
+  if (!atomLoop) {
+    return { lattice, species: [], positions: [], pbc: [true, true, true], title, spaceGroup: spaceGroup || undefined };
+  }
+
+  // ---- Atom site loop ----
+  const colIdx = (L: CifLoop, name: string) => L.columns.indexOf(name);
+  const labelCol = colIdx(atomLoop, '_atom_site_label');
+  const typeCol = colIdx(atomLoop, '_atom_site_type_symbol');
+  const fracXCol = colIdx(atomLoop, '_atom_site_fract_x');
+  const fracYCol = colIdx(atomLoop, '_atom_site_fract_y');
+  const fracZCol = colIdx(atomLoop, '_atom_site_fract_z');
+  const cartXCol = colIdx(atomLoop, '_atom_site_Cartn_x');
+  const cartYCol = colIdx(atomLoop, '_atom_site_Cartn_y');
+  const cartZCol = colIdx(atomLoop, '_atom_site_Cartn_z');
 
   const hasFractional = fracXCol >= 0 && fracYCol >= 0 && fracZCol >= 0;
   const hasCartesian = cartXCol >= 0 && cartYCol >= 0 && cartZCol >= 0;
 
-  // Parse asymmetric unit
   const asymSpecies: string[] = [];
+  const asymLabels: string[] = [];
   const asymFractional: [number, number, number][] = [];
 
-  for (const row of loopRows) {
+  for (const row of atomLoop.rows) {
     let symbol = '';
+    let label = '';
+    if (labelCol >= 0 && row[labelCol]) label = row[labelCol];
     if (typeCol >= 0 && row[typeCol]) {
       symbol = row[typeCol].replace(/[^a-zA-Z]/g, '');
-    } else if (labelCol >= 0 && row[labelCol]) {
-      symbol = row[labelCol].replace(/[0-9+\-]/g, '');
+    } else if (label) {
+      symbol = label.replace(/[0-9+\-]/g, '');
     }
     if (!symbol) continue;
     symbol = symbol.charAt(0).toUpperCase() + symbol.slice(1).toLowerCase();
 
     if (hasFractional) {
       asymSpecies.push(symbol);
+      asymLabels.push(label);
       asymFractional.push([
         parseCifNumber(row[fracXCol]),
         parseCifNumber(row[fracYCol]),
@@ -153,42 +197,104 @@ export function parseCif(content: string): CrystalStructure {
       ]);
     } else if (hasCartesian) {
       asymSpecies.push(symbol);
+      asymLabels.push(label);
       const x = parseCifNumber(row[cartXCol]);
       const y = parseCifNumber(row[cartYCol]);
       const z = parseCifNumber(row[cartZCol]);
-      // Convert cartesian to fractional for symmetry expansion
-      const frac = cartToFrac(lattice, x, y, z);
-      asymFractional.push(frac);
+      asymFractional.push(cartToFrac(lattice, x, y, z));
     }
   }
 
-  // Apply symmetry operations
-  let species: string[];
-  let positions: [number, number, number][];
+  // ---- Anisotropic displacement loop (optional) ----
+  // Build label → Uᵢⱼ map. Accept either U-form (Å²) or B-form (B = 8π²·U).
+  type Uij = { U11: number; U22: number; U33: number; U12: number; U13: number; U23: number };
+  const anisoMap = new Map<string, Uij>();
+  if (anisoLoop) {
+    const aLabel = colIdx(anisoLoop, '_atom_site_aniso_label');
+    const u11 = colIdx(anisoLoop, '_atom_site_aniso_U_11');
+    const u22 = colIdx(anisoLoop, '_atom_site_aniso_U_22');
+    const u33 = colIdx(anisoLoop, '_atom_site_aniso_U_33');
+    const u12 = colIdx(anisoLoop, '_atom_site_aniso_U_12');
+    const u13 = colIdx(anisoLoop, '_atom_site_aniso_U_13');
+    const u23 = colIdx(anisoLoop, '_atom_site_aniso_U_23');
+    const b11 = colIdx(anisoLoop, '_atom_site_aniso_B_11');
+    const b22 = colIdx(anisoLoop, '_atom_site_aniso_B_22');
+    const b33 = colIdx(anisoLoop, '_atom_site_aniso_B_33');
+    const b12 = colIdx(anisoLoop, '_atom_site_aniso_B_12');
+    const b13 = colIdx(anisoLoop, '_atom_site_aniso_B_13');
+    const b23 = colIdx(anisoLoop, '_atom_site_aniso_B_23');
 
-  if (symmetryOps.length > 0 && hasFractional) {
-    const result = applySymmetryOps(asymSpecies, asymFractional, symmetryOps);
-    species = result.species;
-    // Convert fractional to cartesian
-    positions = result.fractional.map(f => fracToCart(lattice, f));
-  } else {
-    species = asymSpecies;
-    if (hasFractional) {
-      positions = asymFractional.map(f => fracToCart(lattice, f));
-    } else {
-      // Already cartesian from loopRows
-      positions = [];
-      for (const row of loopRows) {
-        if (hasCartesian) {
-          positions.push([
-            parseCifNumber(row[cartXCol]),
-            parseCifNumber(row[cartYCol]),
-            parseCifNumber(row[cartZCol]),
-          ]);
+    const useU = u11 >= 0 && u22 >= 0 && u33 >= 0;
+    const useB = !useU && b11 >= 0 && b22 >= 0 && b33 >= 0;
+    const BTOU = 1 / (8 * Math.PI * Math.PI);
+
+    if (aLabel >= 0 && (useU || useB)) {
+      for (const row of anisoLoop.rows) {
+        const lbl = row[aLabel];
+        if (!lbl) continue;
+        if (useU) {
+          anisoMap.set(lbl, {
+            U11: parseCifNumber(row[u11]),
+            U22: parseCifNumber(row[u22]),
+            U33: parseCifNumber(row[u33]),
+            U12: u12 >= 0 ? parseCifNumber(row[u12]) : 0,
+            U13: u13 >= 0 ? parseCifNumber(row[u13]) : 0,
+            U23: u23 >= 0 ? parseCifNumber(row[u23]) : 0,
+          });
+        } else {
+          anisoMap.set(lbl, {
+            U11: parseCifNumber(row[b11]) * BTOU,
+            U22: parseCifNumber(row[b22]) * BTOU,
+            U33: parseCifNumber(row[b33]) * BTOU,
+            U12: b12 >= 0 ? parseCifNumber(row[b12]) * BTOU : 0,
+            U13: b13 >= 0 ? parseCifNumber(row[b13]) * BTOU : 0,
+            U23: b23 >= 0 ? parseCifNumber(row[b23]) * BTOU : 0,
+          });
         }
       }
     }
   }
+
+  // ---- Apply symmetry operations ----
+  let species: string[];
+  let positions: [number, number, number][];
+  let thermalAniso: Array<Uij | null> | undefined;
+
+  if (symmetryOps.length > 0 && hasFractional) {
+    const result = applySymmetryOps(asymSpecies, asymLabels, asymFractional, symmetryOps);
+    species = result.species;
+    positions = result.fractional.map(f => fracToCart(lattice, f));
+    if (anisoMap.size > 0) {
+      // Limitation: propagate Uᵢⱼ without rotation by the symop. Diagonal-
+      // dominant U remains visually plausible; off-axis U mis-orients for
+      // non-identity symops. Track via `_aniso_NEEDS_SYMOP_ROTATION` flag.
+      thermalAniso = result.parentLabels.map(lbl => {
+        const u = lbl ? anisoMap.get(lbl) : undefined;
+        return u ? { ...u } : null;
+      });
+    }
+  } else {
+    species = asymSpecies;
+    positions = hasFractional
+      ? asymFractional.map(f => fracToCart(lattice, f))
+      : atomLoop.rows
+          .filter(_ => hasCartesian)
+          .map(row => [
+            parseCifNumber(row[cartXCol]),
+            parseCifNumber(row[cartYCol]),
+            parseCifNumber(row[cartZCol]),
+          ] as [number, number, number]);
+    if (anisoMap.size > 0) {
+      thermalAniso = asymLabels.map(lbl => {
+        const u = lbl ? anisoMap.get(lbl) : undefined;
+        return u ? { ...u } : null;
+      });
+    }
+  }
+
+  // Length invariant guard: if some species lack aniso, the array is still
+  // populated with `null` slots (above). No length mismatch can happen here
+  // by construction.
 
   return {
     lattice,
@@ -199,16 +305,19 @@ export function parseCif(content: string): CrystalStructure {
     spaceGroup: spaceGroup || undefined,
     cellParams: { a, b, c, alpha, beta, gamma },
     symmetryOps: symmetryOps.length > 0 ? symmetryOps : undefined,
+    ...(thermalAniso ? { thermalAniso } : {}),
   };
 }
 
 function applySymmetryOps(
   asymSpecies: string[],
+  asymLabels: string[],
   asymFractional: [number, number, number][],
   ops: string[]
-): { species: string[]; fractional: [number, number, number][] } {
+): { species: string[]; fractional: [number, number, number][]; parentLabels: string[] } {
   const species: string[] = [];
   const fractional: [number, number, number][] = [];
+  const parentLabels: string[] = [];
   const seen = new Set<string>();
   const tol = 0.01;
 
@@ -223,12 +332,10 @@ function applySymmetryOps(
       let ny = matrix[1][0] * fx + matrix[1][1] * fy + matrix[1][2] * fz + matrix[1][3];
       let nz = matrix[2][0] * fx + matrix[2][1] * fy + matrix[2][2] * fz + matrix[2][3];
 
-      // Wrap to [0, 1)
       nx = ((nx % 1) + 1) % 1;
       ny = ((ny % 1) + 1) % 1;
       nz = ((nz % 1) + 1) % 1;
 
-      // Check for duplicates
       const key = `${asymSpecies[i]}_${nx.toFixed(3)}_${ny.toFixed(3)}_${nz.toFixed(3)}`;
       let isDup = false;
       for (const existing of seen) {
@@ -248,11 +355,12 @@ function applySymmetryOps(
         seen.add(key);
         species.push(asymSpecies[i]);
         fractional.push([nx, ny, nz]);
+        parentLabels.push(asymLabels[i]);
       }
     }
   }
 
-  return { species, fractional };
+  return { species, fractional, parentLabels };
 }
 
 function parseSymOp(op: string): number[][] | null {
@@ -261,10 +369,9 @@ function parseSymOp(op: string): number[][] | null {
 
   const matrix: number[][] = [];
   for (const part of parts) {
-    const row = [0, 0, 0, 0]; // coefficients for x, y, z, constant
+    const row = [0, 0, 0, 0];
     let expr = part.replace(/\s/g, '');
 
-    // Match terms like +x, -y, +1/2, -1/4, x, y, z
     const regex = /([+-]?)(\d+\/\d+|\d+\.?\d*)?([xyz])?/g;
     let match;
     while ((match = regex.exec(expr)) !== null) {
@@ -273,12 +380,10 @@ function parseSymOp(op: string): number[][] | null {
       const sign = match[1] === '-' ? -1 : 1;
 
       if (match[3]) {
-        // Variable term (x, y, z)
         const coeff = match[2] ? parseFraction(match[2]) : 1;
         const idx = 'xyz'.indexOf(match[3]);
         row[idx] = sign * coeff;
       } else if (match[2]) {
-        // Constant term
         row[3] += sign * parseFraction(match[2]);
       }
     }
@@ -310,7 +415,6 @@ function cartToFrac(lattice: [number, number, number][], x: number, y: number, z
             + a[2] * (b[0] * c[1] - b[1] * c[0]);
   if (Math.abs(det) < 1e-10) return [0, 0, 0];
   const invDet = 1 / det;
-  // Transpose application: f_i = sum_j inv[j][i] * cart[j]
   return [
     ((b[1] * c[2] - b[2] * c[1]) * x + (b[2] * c[0] - b[0] * c[2]) * y + (b[0] * c[1] - b[1] * c[0]) * z) * invDet,
     ((a[2] * c[1] - a[1] * c[2]) * x + (a[0] * c[2] - a[2] * c[0]) * y + (a[1] * c[0] - a[0] * c[1]) * z) * invDet,
@@ -352,18 +456,29 @@ function cellToLattice(
   a: number, b: number, c: number,
   alpha: number, beta: number, gamma: number
 ): [number, number, number][] {
+  // Degenerate-cell guard (16.1): caught by editor parse-error boundary.
+  if (a < 1e-9 || b < 1e-9 || c < 1e-9) {
+    throw new Error(`Degenerate lattice: cell length ≤ 0 (a=${a}, b=${b}, c=${c})`);
+  }
   const degToRad = Math.PI / 180;
+  const sinGamma = Math.sin(gamma * degToRad);
+  if (Math.abs(sinGamma) < 1e-6) {
+    throw new Error(`Degenerate lattice: gamma ≈ 0 or 180 (γ=${gamma}°), cell vectors collinear`);
+  }
   const cosAlpha = Math.cos(alpha * degToRad);
   const cosBeta = Math.cos(beta * degToRad);
   const cosGamma = Math.cos(gamma * degToRad);
-  const sinGamma = Math.sin(gamma * degToRad);
 
   const v1: [number, number, number] = [a, 0, 0];
   const v2: [number, number, number] = [b * cosGamma, b * sinGamma, 0];
 
   const cx = c * cosBeta;
   const cy = c * (cosAlpha - cosBeta * cosGamma) / sinGamma;
-  const cz = Math.sqrt(c * c - cx * cx - cy * cy);
+  const czSq = c * c - cx * cx - cy * cy;
+  if (czSq < -1e-6) {
+    throw new Error(`Degenerate lattice: angles inconsistent (α=${alpha}°, β=${beta}°, γ=${gamma}°), cz² = ${czSq.toFixed(6)}`);
+  }
+  const cz = Math.sqrt(Math.max(0, czSq));
   const v3: [number, number, number] = [cx, cy, cz];
 
   return [v1, v2, v3];

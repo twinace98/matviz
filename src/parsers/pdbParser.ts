@@ -54,17 +54,29 @@ function cellToLattice(
   a: number, b: number, c: number,
   alpha: number, beta: number, gamma: number
 ): [number, number, number][] {
+  // Degenerate-cell guard (16.1): caught by editor parse-error boundary so
+  // malformed CRYST1 records surface "Open as Text" rather than NaN positions.
+  if (a < 1e-9 || b < 1e-9 || c < 1e-9) {
+    throw new Error(`Degenerate lattice in CRYST1: cell length ≤ 0 (a=${a}, b=${b}, c=${c})`);
+  }
   const degToRad = Math.PI / 180;
+  const sinGamma = Math.sin(gamma * degToRad);
+  if (Math.abs(sinGamma) < 1e-6) {
+    throw new Error(`Degenerate lattice in CRYST1: gamma ≈ 0 or 180 (γ=${gamma}°), cell vectors collinear`);
+  }
   const cosAlpha = Math.cos(alpha * degToRad);
   const cosBeta = Math.cos(beta * degToRad);
   const cosGamma = Math.cos(gamma * degToRad);
-  const sinGamma = Math.sin(gamma * degToRad);
 
   const v1: [number, number, number] = [a, 0, 0];
   const v2: [number, number, number] = [b * cosGamma, b * sinGamma, 0];
   const cx = c * cosBeta;
   const cy = c * (cosAlpha - cosBeta * cosGamma) / sinGamma;
-  const cz = Math.sqrt(c * c - cx * cx - cy * cy);
+  const czSq = c * c - cx * cx - cy * cy;
+  if (czSq < -1e-6) {
+    throw new Error(`Degenerate lattice in CRYST1: angles inconsistent (α=${alpha}°, β=${beta}°, γ=${gamma}°)`);
+  }
+  const cz = Math.sqrt(Math.max(0, czSq));
   const v3: [number, number, number] = [cx, cy, cz];
 
   return [v1, v2, v3];

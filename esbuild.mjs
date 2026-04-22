@@ -58,6 +58,18 @@ const harnessConfig = {
   external: ['puppeteer'],
 };
 
+// Parser-test harness (16.1). One-shot verification for CIF aniso parser +
+// multi-loop refactor + NaN guards. Runs in pure Node (no Puppeteer).
+const parserTestConfig = {
+  entryPoints: ['scripts/test-aniso.ts'],
+  bundle: true,
+  outfile: 'dist/test-aniso.js',
+  format: 'cjs',
+  platform: 'node',
+  target: 'node18',
+  sourcemap: false,
+};
+
 if (watch) {
   const ctx1 = await esbuild.context(extensionConfig);
   const ctx2 = await esbuild.context(webviewConfig);
@@ -70,5 +82,6 @@ if (watch) {
   await esbuild.build(cliConfig);
   await esbuild.build(cliHelpersConfig);
   await esbuild.build(harnessConfig);
+  await esbuild.build(parserTestConfig);
   console.log('Build complete.');
 }
