@@ -198,7 +198,7 @@ function generateStructureHTML(opts: RenderOptions, structureJSON: string, volum
 <canvas id="c" width="${opts.width}" height="${opts.height}"></canvas>
 <script type="module">
 import * as THREE from '${threeURL}';
-import { marchingCubes, ConvexGeometry } from '${helpersURL}';
+import { marchingCubes, marchingSquaresFill, tileVolumetricPBC, ConvexGeometry } from '${helpersURL}';
 
 const W = ${opts.width}, H = ${opts.height};
 const canvas = document.getElementById('c');
@@ -684,31 +684,78 @@ if (OPTS.polyhedra && bonds.length > 0) {
 }
 
 // --- Isosurface (volumetric data) ---
-if (volumetric && OPTS.iso !== null) {
-  const data = new Float32Array(volumetric.data);
-  const dims = volumetric.dims;
-  const origin = volumetric.origin;
+if (volumetric && OPTS.iso !== null && OPTS.iso > 0) {
+  const baseData = new Float32Array(volumetric.data);
+  const vorigin = volumetric.origin;
   const vlat = volumetric.lattice;
   const level = OPTS.iso;
 
-  function buildIso(isoLevel, color) {
-    const result = marchingCubes(data, dims, origin, vlat, isoLevel);
-    if (result.positions.length === 0) return;
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(result.positions, 3));
-    geo.setAttribute('normal', new THREE.BufferAttribute(result.normals, 3));
+  const tiled = tileVolumetricPBC(baseData, volumetric.dims, OPTS.supercell);
+  const scLat = [
+    [vlat[0][0] * na, vlat[0][1] * na, vlat[0][2] * na],
+    [vlat[1][0] * nb, vlat[1][1] * nb, vlat[1][2] * nb],
+    [vlat[2][0] * nc, vlat[2][1] * nc, vlat[2][2] * nc],
+  ];
+  const [Nx, Ny, Nz] = tiled.dims;
+  const uStepA = [scLat[0][0] / Nx, scLat[0][1] / Nx, scLat[0][2] / Nx];
+  const vStepB = [scLat[1][0] / Ny, scLat[1][1] / Ny, scLat[1][2] / Ny];
+  const wStepC = [scLat[2][0] / Nz, scLat[2][1] / Nz, scLat[2][2] / Nz];
+  const cross3 = (a, b) => [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
+  const norm3 = v => { const l = Math.hypot(v[0],v[1],v[2]) || 1; return [v[0]/l, v[1]/l, v[2]/l]; };
+  const nAB = norm3(cross3(scLat[0], scLat[1]));
+  const nBC = norm3(cross3(scLat[1], scLat[2]));
+  const nCA = norm3(cross3(scLat[2], scLat[0]));
+
+  const sliceAxis = (fixedAxis, fixedIdx) => {
+    if (fixedAxis === 0) {
+      const out = new Float32Array(Ny * Nz);
+      for (let iy = 0; iy < Ny; iy++) for (let iz = 0; iz < Nz; iz++) out[iy * Nz + iz] = tiled.data[fixedIdx * Ny * Nz + iy * Nz + iz];
+      return out;
+    } else if (fixedAxis === 1) {
+      const out = new Float32Array(Nx * Nz);
+      for (let ix = 0; ix < Nx; ix++) for (let iz = 0; iz < Nz; iz++) out[ix * Nz + iz] = tiled.data[ix * Ny * Nz + fixedIdx * Nz + iz];
+      return out;
+    } else {
+      const out = new Float32Array(Nx * Ny);
+      for (let ix = 0; ix < Nx; ix++) for (let iy = 0; iy < Ny; iy++) out[ix * Ny + iy] = tiled.data[ix * Ny * Nz + iy * Nz + fixedIdx];
+      return out;
+    }
+  };
+
+  const buildLobe = (isoLevel, color, fillBelow) => {
     const mat = new THREE.MeshPhongMaterial({
       color: new THREE.Color(color),
       transparent: true, opacity: 0.6, side: THREE.DoubleSide,
     });
-    scene.add(new THREE.Mesh(geo, mat));
-  }
 
-  // Positive lobe (blue) and negative lobe (red), VESTA convention
-  if (level > 0) {
-    buildIso(level, OPTS.palette === 'dark' ? '#4488ff' : '#0044cc');
-    buildIso(-level, OPTS.palette === 'dark' ? '#ff4444' : '#cc0000');
-  }
+    const mc = marchingCubes(tiled.data, tiled.dims, vorigin, scLat, isoLevel, true);
+    if (mc.positions.length > 0) {
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(mc.positions, 3));
+      geo.setAttribute('normal', new THREE.BufferAttribute(mc.normals, 3));
+      scene.add(new THREE.Mesh(geo, mat));
+    }
+
+    const faces = [
+      { data: sliceAxis(0, 0), dims: [Ny, Nz], origin: vorigin, u: vStepB, v: wStepC, n: [-nBC[0], -nBC[1], -nBC[2]] },
+      { data: sliceAxis(0, 0), dims: [Ny, Nz], origin: [vorigin[0]+scLat[0][0], vorigin[1]+scLat[0][1], vorigin[2]+scLat[0][2]], u: vStepB, v: wStepC, n: nBC },
+      { data: sliceAxis(1, 0), dims: [Nx, Nz], origin: vorigin, u: uStepA, v: wStepC, n: [-nCA[0], -nCA[1], -nCA[2]] },
+      { data: sliceAxis(1, 0), dims: [Nx, Nz], origin: [vorigin[0]+scLat[1][0], vorigin[1]+scLat[1][1], vorigin[2]+scLat[1][2]], u: uStepA, v: wStepC, n: nCA },
+      { data: sliceAxis(2, 0), dims: [Nx, Ny], origin: vorigin, u: uStepA, v: vStepB, n: [-nAB[0], -nAB[1], -nAB[2]] },
+      { data: sliceAxis(2, 0), dims: [Nx, Ny], origin: [vorigin[0]+scLat[2][0], vorigin[1]+scLat[2][1], vorigin[2]+scLat[2][2]], u: uStepA, v: vStepB, n: nAB },
+    ];
+    for (const f of faces) {
+      const cap = marchingSquaresFill(f.data, f.dims, f.origin, f.u, f.v, isoLevel, f.n, fillBelow);
+      if (cap.positions.length === 0) continue;
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(cap.positions, 3));
+      geo.setAttribute('normal', new THREE.BufferAttribute(cap.normals, 3));
+      scene.add(new THREE.Mesh(geo, mat));
+    }
+  };
+
+  buildLobe(level, OPTS.palette === 'dark' ? '#4488ff' : '#0044cc', false);
+  buildLobe(-level, OPTS.palette === 'dark' ? '#ff4444' : '#cc0000', true);
 }
 
 // --- Lattice plane (Miller indices) ---

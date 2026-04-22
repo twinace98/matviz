@@ -6,7 +6,7 @@ import { getElement } from '../shared/elements-data';
 import { getElementPaletteColor, getPaletteLineColors } from '../shared/elements-palette';
 import type { ColorPalette } from '../shared/elements-palette';
 import type { DisplayStyle, CameraMode, BondStyle } from './message';
-import { marchingCubes } from './marchingCubes';
+import { marchingCubes, marchingSquaresFill, tileVolumetricPBC } from './marchingCubes';
 import { AxisIndicator } from './axisIndicator';
 import { BondRenderer, type BondInfo } from './bondRenderer';
 import { SphereImpostorMesh, createImpostorMaterial } from './sphereImpostor';
@@ -389,9 +389,10 @@ export class CrystalRenderer {
     if (palette === this.colorPalette) return;
     this.colorPalette = palette;
     if (this.structure) {
-      this.rebuild(false);
+      this.rebuild(false);  // buildVisuals rebuilds iso too
+    } else if (this.volumetricData) {
+      this.buildIsosurface();
     }
-    if (this.volumetricData) this.buildIsosurface();
     this.requestRender();
   }
 
@@ -525,44 +526,113 @@ export class CrystalRenderer {
   private buildIsosurface() {
     this.clearGroup(this.isoGroup);
     if (!this.volumetricData) return;
+    if (this.isoLevel <= 0) { this.requestRender(); return; }
 
     const vd = this.volumetricData;
+    const sc = this.supercell;
 
-    // Positive isosurface
-    if (this.isoLevel > 0) {
-      const result = marchingCubes(vd.data, vd.dims, vd.origin, vd.lattice, this.isoLevel);
-      if (result.positions.length > 0) {
+    // Tile the volumetric data (PBC) to fill the supercell so MC runs once
+    // over continuous values — inner cell boundaries become seamless.
+    const tiled = tileVolumetricPBC(vd.data, vd.dims, sc);
+    const scLat: [number, number, number][] = [
+      [vd.lattice[0][0] * sc[0], vd.lattice[0][1] * sc[0], vd.lattice[0][2] * sc[0]],
+      [vd.lattice[1][0] * sc[1], vd.lattice[1][1] * sc[1], vd.lattice[1][2] * sc[1]],
+      [vd.lattice[2][0] * sc[2], vd.lattice[2][1] * sc[2], vd.lattice[2][2] * sc[2]],
+    ];
+
+    const [Nx, Ny, Nz] = tiled.dims;
+    const uStepA: [number, number, number] = [scLat[0][0] / Nx, scLat[0][1] / Nx, scLat[0][2] / Nx];
+    const vStepB: [number, number, number] = [scLat[1][0] / Ny, scLat[1][1] / Ny, scLat[1][2] / Ny];
+    const wStepC: [number, number, number] = [scLat[2][0] / Nz, scLat[2][1] / Nz, scLat[2][2] / Nz];
+
+    // Outward face normals (a × b, etc., normalized)
+    const cross = (a: number[], b: number[]): [number, number, number] => [
+      a[1] * b[2] - a[2] * b[1],
+      a[2] * b[0] - a[0] * b[2],
+      a[0] * b[1] - a[1] * b[0],
+    ];
+    const norm = (v: [number, number, number]): [number, number, number] => {
+      const l = Math.hypot(v[0], v[1], v[2]) || 1;
+      return [v[0] / l, v[1] / l, v[2] / l];
+    };
+    const nAB = norm(cross(scLat[0], scLat[1]));  // +c face normal (outward at iz=Nz side)
+    const nBC = norm(cross(scLat[1], scLat[2]));  // +a face (ix=Nx)
+    const nCA = norm(cross(scLat[2], scLat[0]));  // +b face (iy=Ny)
+
+    const addLobe = (level: number, color: number, fillBelow: boolean) => {
+      const mat = this.trackMat(new THREE.MeshPhongMaterial({
+        color,
+        transparent: true,
+        opacity: 0.6,
+        side: THREE.DoubleSide,
+      }));
+
+      // --- Marching cubes on tiled data (pbc=true so iso reaches cell boundary) ---
+      const mc = marchingCubes(tiled.data, tiled.dims, vd.origin, scLat, level, true);
+      if (mc.positions.length > 0) {
         const geo = new THREE.BufferGeometry();
-        geo.setAttribute('position', new THREE.BufferAttribute(result.positions, 3));
-        geo.setAttribute('normal', new THREE.BufferAttribute(result.normals, 3));
+        geo.setAttribute('position', new THREE.BufferAttribute(mc.positions, 3));
+        geo.setAttribute('normal', new THREE.BufferAttribute(mc.normals, 3));
         this.geometries.push(geo);
-        const mat = this.trackMat(new THREE.MeshPhongMaterial({
-          color: this.paletteColors().isoPos,
-          transparent: true,
-          opacity: 0.6,
-          side: THREE.DoubleSide,
-        }));
         this.isoGroup.add(new THREE.Mesh(geo, mat));
       }
-    }
 
-    // Negative isosurface
-    if (this.isoLevel > 0) {
-      const result = marchingCubes(vd.data, vd.dims, vd.origin, vd.lattice, -this.isoLevel);
-      if (result.positions.length > 0) {
+      // --- Caps on the 6 outer supercell faces ---
+      // Extract 2D slice `slice[iu * nv + iv]` at a fixed index along one axis.
+      const sliceAxis = (fixedAxis: 0 | 1 | 2, fixedIdx: number): Float32Array => {
+        if (fixedAxis === 0) {
+          const out = new Float32Array(Ny * Nz);
+          for (let iy = 0; iy < Ny; iy++) for (let iz = 0; iz < Nz; iz++) out[iy * Nz + iz] = tiled.data[fixedIdx * Ny * Nz + iy * Nz + iz];
+          return out;
+        } else if (fixedAxis === 1) {
+          const out = new Float32Array(Nx * Nz);
+          for (let ix = 0; ix < Nx; ix++) for (let iz = 0; iz < Nz; iz++) out[ix * Nz + iz] = tiled.data[ix * Ny * Nz + fixedIdx * Nz + iz];
+          return out;
+        } else {
+          const out = new Float32Array(Nx * Ny);
+          for (let ix = 0; ix < Nx; ix++) for (let iy = 0; iy < Ny; iy++) out[ix * Ny + iy] = tiled.data[ix * Ny * Nz + iy * Nz + fixedIdx];
+          return out;
+        }
+      };
+
+      const origin = vd.origin as [number, number, number];
+      const faces: Array<{
+        data: Float32Array;
+        dims: [number, number];
+        origin: [number, number, number];
+        uStep: [number, number, number];
+        vStep: [number, number, number];
+        normal: [number, number, number];
+      }> = [
+        // -a (ix = 0): u=b, v=c, outward = -nBC
+        { data: sliceAxis(0, 0), dims: [Ny, Nz], origin: origin, uStep: vStepB, vStep: wStepC, normal: [-nBC[0], -nBC[1], -nBC[2]] },
+        // +a: PBC makes data[Nx] = data[0]; place cap at origin + scLat[0]
+        { data: sliceAxis(0, 0), dims: [Ny, Nz], origin: [origin[0] + scLat[0][0], origin[1] + scLat[0][1], origin[2] + scLat[0][2]], uStep: vStepB, vStep: wStepC, normal: nBC },
+        // -b (iy = 0): iu=ix (uStep=a), iv=iz (vStep=c)
+        { data: sliceAxis(1, 0), dims: [Nx, Nz], origin: origin, uStep: uStepA, vStep: wStepC, normal: [-nCA[0], -nCA[1], -nCA[2]] },
+        // +b: PBC
+        { data: sliceAxis(1, 0), dims: [Nx, Nz], origin: [origin[0] + scLat[1][0], origin[1] + scLat[1][1], origin[2] + scLat[1][2]], uStep: uStepA, vStep: wStepC, normal: nCA },
+        // -c (iz = 0): u=a, v=b
+        { data: sliceAxis(2, 0), dims: [Nx, Ny], origin: origin, uStep: uStepA, vStep: vStepB, normal: [-nAB[0], -nAB[1], -nAB[2]] },
+        // +c: PBC
+        { data: sliceAxis(2, 0), dims: [Nx, Ny], origin: [origin[0] + scLat[2][0], origin[1] + scLat[2][1], origin[2] + scLat[2][2]], uStep: uStepA, vStep: vStepB, normal: nAB },
+      ];
+
+      for (const f of faces) {
+        // Remap layout: sliceAxis builds data[iu * nv + iv] but the order
+        // of nu/nv depends on which two axes we chose — already matches `dims` above.
+        const cap = marchingSquaresFill(f.data, f.dims, f.origin, f.uStep, f.vStep, level, f.normal, fillBelow);
+        if (cap.positions.length === 0) continue;
         const geo = new THREE.BufferGeometry();
-        geo.setAttribute('position', new THREE.BufferAttribute(result.positions, 3));
-        geo.setAttribute('normal', new THREE.BufferAttribute(result.normals, 3));
+        geo.setAttribute('position', new THREE.BufferAttribute(cap.positions, 3));
+        geo.setAttribute('normal', new THREE.BufferAttribute(cap.normals, 3));
         this.geometries.push(geo);
-        const mat = this.trackMat(new THREE.MeshPhongMaterial({
-          color: this.paletteColors().isoNeg,
-          transparent: true,
-          opacity: 0.6,
-          side: THREE.DoubleSide,
-        }));
         this.isoGroup.add(new THREE.Mesh(geo, mat));
       }
-    }
+    };
+
+    addLobe(this.isoLevel, this.paletteColors().isoPos, false);
+    addLobe(-this.isoLevel, this.paletteColors().isoNeg, true);
 
     this.requestRender();
   }
@@ -1373,6 +1443,9 @@ export class CrystalRenderer {
 
     if (this.showPolyhedra) this.buildPolyhedra();
     this.polyhedraGroup.visible = this.showPolyhedra;
+
+    // Isosurface depends on supercell tiling, so rebuild whenever visuals do.
+    if (this.volumetricData) this.buildIsosurface();
 
     this.requestRender();
   }
