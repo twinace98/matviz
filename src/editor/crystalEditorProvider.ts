@@ -298,6 +298,16 @@ export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvide
         <label class="toggle" title="Render partial-occupancy sites as transparent atoms with opacity = occupancy ratio (per-site preserved)"><input type="checkbox" id="partial-occ-check"><span>Show partial occupancy</span></label>
       </div>
     </div>
+    <div class="panel-section hidden" id="magnetic-moments-section">
+      <div class="panel-label" title="Magnetic moment vectors from VASP MAGMOM (POSCAR title line) or CIF _atom_site_moment_*">Magnetic moments</div>
+      <div class="toggle-group">
+        <label class="toggle" title="Render arrows on atoms with non-zero magnetic moment (length ∝ |m|, color by colormap)"><input type="checkbox" id="magmom-check"><span>Show moments</span></label>
+      </div>
+      <div class="toggle-group" id="magnetic-colormap-row" title="Colormap for arrow color">
+        <label class="toggle"><input type="radio" name="mag-colormap" value="redblue" id="mag-cmap-redblue" checked><span>Red/Blue</span></label>
+        <label class="toggle"><input type="radio" name="mag-colormap" value="viridis" id="mag-cmap-viridis"><span>Viridis</span></label>
+      </div>
+    </div>
     <div class="panel-section">
       <div class="panel-label panel-label-toggle" id="atoms-toggle" title="Expand per-element color / radius / visibility overrides">Atoms &#x25B6;</div>
       <div id="atoms-props" class="props-list hidden"></div>

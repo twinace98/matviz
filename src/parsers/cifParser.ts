@@ -152,6 +152,9 @@ export function parseCif(content: string): CrystalStructure {
   const anisoLoop = parsedLoops.find(L =>
     L.columns.includes('_atom_site_aniso_label')
   );
+  const momentLoop = parsedLoops.find(L =>
+    L.columns.includes('_atom_site_moment_label')
+  );
 
   if (!atomLoop) {
     return { lattice, species: [], positions: [], pbc: [true, true, true], title, spaceGroup: spaceGroup || undefined };
@@ -270,11 +273,49 @@ export function parseCif(content: string): CrystalStructure {
     }
   }
 
+  // ---- Magnetic moment loop (optional) ----
+  // Build label → moment vector map. Two CIF flavors:
+  //   _atom_site_moment_cartn_x/y/z      → already Cartesian (Å, μB)
+  //   _atom_site_moment_crystalaxis_x/y/z → fractional / lattice-basis
+  // Result vector is Cartesian (μB) so that the renderer can transform to
+  // world space directly.
+  const momentMap = new Map<string, [number, number, number]>();
+  if (momentLoop) {
+    const mLabel = colIdx(momentLoop, '_atom_site_moment_label');
+    const cx = colIdx(momentLoop, '_atom_site_moment_cartn_x');
+    const cy = colIdx(momentLoop, '_atom_site_moment_cartn_y');
+    const cz = colIdx(momentLoop, '_atom_site_moment_cartn_z');
+    const fx = colIdx(momentLoop, '_atom_site_moment_crystalaxis_x');
+    const fy = colIdx(momentLoop, '_atom_site_moment_crystalaxis_y');
+    const fz = colIdx(momentLoop, '_atom_site_moment_crystalaxis_z');
+    const useCart = cx >= 0 && cy >= 0 && cz >= 0;
+    const useFrac = !useCart && fx >= 0 && fy >= 0 && fz >= 0;
+    if (mLabel >= 0 && (useCart || useFrac)) {
+      for (const row of momentLoop.rows) {
+        const lbl = row[mLabel];
+        if (!lbl) continue;
+        if (useCart) {
+          momentMap.set(lbl, [
+            parseCifNumber(row[cx]),
+            parseCifNumber(row[cy]),
+            parseCifNumber(row[cz]),
+          ]);
+        } else {
+          const f0 = parseCifNumber(row[fx]);
+          const f1 = parseCifNumber(row[fy]);
+          const f2 = parseCifNumber(row[fz]);
+          momentMap.set(lbl, fracToCart(lattice, [f0, f1, f2]));
+        }
+      }
+    }
+  }
+
   // ---- Apply symmetry operations ----
   let species: string[];
   let positions: [number, number, number][];
   let thermalAniso: Array<Uij | null> | undefined;
   let occupancy: number[] | undefined;
+  let magMom: Array<[number, number, number]> | undefined;
 
   if (symmetryOps.length > 0 && hasFractional) {
     const result = applySymmetryOps(asymSpecies, asymLabels, asymFractional, symmetryOps);
@@ -296,6 +337,15 @@ export function parseCif(content: string): CrystalStructure {
       for (let i = 0; i < asymLabels.length; i++) occByLabel.set(asymLabels[i], asymOccupancy[i]);
       occupancy = result.parentLabels.map(lbl => occByLabel.get(lbl) ?? 1.0);
     }
+    if (momentMap.size > 0) {
+      // Same limitation as thermalAniso: moment vector NOT rotated by symop.
+      // Correct only for identity symmetry or when moment is along an axis
+      // preserved by the symop. Track via TODO 16.x.
+      magMom = result.parentLabels.map(lbl => {
+        const m = lbl ? momentMap.get(lbl) : undefined;
+        return m ? [m[0], m[1], m[2]] as [number, number, number] : [0, 0, 0] as [number, number, number];
+      });
+    }
   } else {
     species = asymSpecies;
     positions = hasFractional
@@ -316,6 +366,12 @@ export function parseCif(content: string): CrystalStructure {
     if (anyPartialOccupancy) {
       occupancy = [...asymOccupancy];
     }
+    if (momentMap.size > 0) {
+      magMom = asymLabels.map(lbl => {
+        const m = lbl ? momentMap.get(lbl) : undefined;
+        return m ? [m[0], m[1], m[2]] as [number, number, number] : [0, 0, 0] as [number, number, number];
+      });
+    }
   }
 
   // Length invariant guard: if some species lack aniso, the array is still
@@ -333,6 +389,7 @@ export function parseCif(content: string): CrystalStructure {
     symmetryOps: symmetryOps.length > 0 ? symmetryOps : undefined,
     ...(thermalAniso ? { thermalAniso } : {}),
     ...(occupancy ? { occupancy } : {}),
+    ...(magMom ? { magMom } : {}),
   };
 }
 

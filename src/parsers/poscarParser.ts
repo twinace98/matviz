@@ -54,7 +54,6 @@ export function parsePoscar(content: string): CrystalStructure {
       species.push(speciesNames[si]);
 
       if (isDirect) {
-        // Convert fractional to cartesian
         const [fx, fy, fz] = vals;
         const x = fx * lattice[0][0] + fy * lattice[1][0] + fz * lattice[2][0];
         const y = fx * lattice[0][1] + fy * lattice[1][1] + fz * lattice[2][1];
@@ -67,5 +66,53 @@ export function parsePoscar(content: string): CrystalStructure {
     }
   }
 
-  return { lattice, species, positions, pbc: [true, true, true], title };
+  // 16.3: parse VASP MAGMOM if present in the title comment line. Convention:
+  //   "MAGMOM = 2 -2 0 0"          (collinear, N tokens, → [0,0,m] per atom)
+  //   "MAGMOM = 0 0 1.5 0 0 -1.5"  (non-collinear, 3N tokens, → [mx,my,mz])
+  // Compressed form ("4*1.0 -2*1.5") not yet supported (16.x).
+  // INCAR auto-discovery deferred to extension host (16.x).
+  const magMom = parseMagmomFromTitle(title, species.length);
+  const result: CrystalStructure = { lattice, species, positions, pbc: [true, true, true], title };
+  if (magMom) result.magMom = magMom;
+  return result;
+}
+
+/**
+ * Extracts a VASP-style MAGMOM list from the POSCAR comment line.
+ * Returns null when no MAGMOM tag is present, the token count doesn't
+ * match either the collinear (N) or non-collinear (3N) convention, or
+ * any token isn't a finite number. Compressed form (`k*v`) not supported.
+ */
+export function parseMagmomFromTitle(title: string, atomCount: number): Array<[number, number, number]> | null {
+  // Match "MAGMOM = ..." or "MAGMOM=..."; capture rest of the line
+  const m = title.match(/MAGMOM\s*=\s*(.*)$/i);
+  if (!m) return null;
+  const tokens = m[1].split(/[\s,]+/).filter(Boolean);
+  if (tokens.some(t => t.includes('*'))) {
+    // eslint-disable-next-line no-console
+    console.warn('[magmom] compressed MAGMOM form (k*v) not supported, ignoring');
+    return null;
+  }
+  const values = tokens.map(t => parseFloat(t));
+  if (values.some(v => !Number.isFinite(v))) {
+    // eslint-disable-next-line no-console
+    console.warn('[magmom] MAGMOM contains non-numeric tokens, ignoring');
+    return null;
+  }
+  const result: Array<[number, number, number]> = [];
+  if (values.length === atomCount) {
+    // Collinear: scalar per atom along z (LSORBIT=F default)
+    for (const v of values) result.push([0, 0, v]);
+    return result;
+  }
+  if (values.length === 3 * atomCount) {
+    // Non-collinear: vector per atom (LSORBIT=T)
+    for (let i = 0; i < atomCount; i++) {
+      result.push([values[3 * i], values[3 * i + 1], values[3 * i + 2]]);
+    }
+    return result;
+  }
+  // eslint-disable-next-line no-console
+  console.warn(`[magmom] MAGMOM token count ${values.length} matches neither N=${atomCount} (collinear) nor 3N=${3 * atomCount} (non-collinear), ignoring`);
+  return null;
 }

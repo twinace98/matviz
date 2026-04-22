@@ -11,6 +11,7 @@ import { AxisIndicator } from './axisIndicator';
 import { BondRenderer, type BondInfo } from './bondRenderer';
 import { SphereImpostorMesh, createImpostorMaterial } from './sphereImpostor';
 import { EllipsoidRenderer, type EllipsoidInstance, type ProbabilityContour } from './ellipsoidRenderer';
+import { MagneticArrowRenderer, type MagneticArrowInstance, type Colormap as MagColormap } from './magneticArrowRenderer';
 import { AtomPickingRenderer } from './picking';
 import type { VolumetricData } from '../parsers/types';
 
@@ -87,6 +88,13 @@ export class CrystalRenderer {
   // (per-site opacity preserved). Otherwise rendered as full atoms via the
   // regular path (matches the pre-v0.16 behavior — no visual change off).
   private showPartialOccupancy = false;
+
+  // 16.3 magnetic moment vectors — opt-in arrow overlay. Independent of
+  // atom rendering (doesn't peel atoms off the regular path; arrows just
+  // overlay). Hidden by default; UI surfaces only when structure carries
+  // magMom data.
+  private magneticArrowRenderer = new MagneticArrowRenderer();
+  private showMagneticMoments = false;
 
   // Per-element user overrides
   private elementColorOverrides = new Map<string, string>();
@@ -175,7 +183,7 @@ export class CrystalRenderer {
     dir2.position.set(-5, -5, -5);
     this.scene.add(ambient, dir1, dir2);
 
-    this.scene.add(this.atomGroup, this.bondRenderer.group, this.cellGroup, this.labelGroup, this.polyhedraGroup, this.measureGroup, this.planeGroup, this.isoGroup, this.ellipsoidRenderer.group);
+    this.scene.add(this.atomGroup, this.bondRenderer.group, this.cellGroup, this.labelGroup, this.polyhedraGroup, this.measureGroup, this.planeGroup, this.isoGroup, this.ellipsoidRenderer.group, this.magneticArrowRenderer.group);
     this.labelGroup.renderOrder = 999;
     this.labelGroup.visible = false;
     this.polyhedraGroup.visible = false;
@@ -311,6 +319,31 @@ export class CrystalRenderer {
    */
   hasPartialOccupancy(): boolean {
     return !!this.structure?.occupancy?.some(o => o < 1.0 - 1e-6);
+  }
+
+  // 16.3 magnetic moments — toggle, colormap, and helper.
+  setShowMagneticMoments(enabled: boolean) {
+    if (enabled === this.showMagneticMoments) return;
+    this.showMagneticMoments = enabled;
+    if (this.structure) this.buildVisuals();
+  }
+
+  getShowMagneticMoments(): boolean { return this.showMagneticMoments; }
+
+  setMagneticColormap(c: MagColormap) {
+    if (c === this.magneticArrowRenderer.getColormap()) return;
+    this.magneticArrowRenderer.setColormap(c);
+    if (this.structure && this.showMagneticMoments) this.buildVisuals();
+  }
+
+  getMagneticColormap(): MagColormap { return this.magneticArrowRenderer.getColormap(); }
+
+  /**
+   * Whether the loaded structure carries any non-zero magnetic moment.
+   * Used by the UI to surface the magnetic-moments section.
+   */
+  hasMagneticMoments(): boolean {
+    return !!this.structure?.magMom?.some(m => m[0] !== 0 || m[1] !== 0 || m[2] !== 0);
   }
 
   toggleLabels() {
@@ -767,6 +800,8 @@ export class CrystalRenderer {
     showEllipsoids: boolean;
     probabilityContour: ProbabilityContour;
     showPartialOccupancy: boolean;
+    showMagneticMoments: boolean;
+    magneticColormap: MagColormap;
   } {
     const pos = this.activeCamera.position;
     const target = this.controls.target;
@@ -798,6 +833,8 @@ export class CrystalRenderer {
       showEllipsoids: this.showEllipsoids,
       probabilityContour: this.ellipsoidRenderer.getProbabilityContour(),
       showPartialOccupancy: this.showPartialOccupancy,
+      showMagneticMoments: this.showMagneticMoments,
+      magneticColormap: this.magneticArrowRenderer.getColormap(),
     };
   }
 
@@ -845,6 +882,10 @@ export class CrystalRenderer {
       this.ellipsoidRenderer.setProbabilityContour(state.probabilityContour);
     }
     if (typeof state.showPartialOccupancy === 'boolean') this.showPartialOccupancy = state.showPartialOccupancy;
+    if (typeof state.showMagneticMoments === 'boolean') this.showMagneticMoments = state.showMagneticMoments;
+    if (state.magneticColormap === 'redblue' || state.magneticColormap === 'viridis') {
+      this.magneticArrowRenderer.setColormap(state.magneticColormap);
+    }
 
     if (state.cameraMode !== this.cameraMode) {
       this.setCameraMode(state.cameraMode);
@@ -1502,6 +1543,26 @@ export class CrystalRenderer {
 
     this.buildAtoms(species, positions, style, bonds);
     this.pickingRenderer.rebuild(this.atomMeshMap, this.impostorEnabled, this.cameraMode === 'orthographic');
+
+    // 16.3 magnetic-moment arrows — overlay, independent of atom dispatch.
+    // Looks up moment per expanded atom via expandedUnitCellIndex; arrows
+    // are skipped for zero moments (length < 1e-4).
+    this.magneticArrowRenderer.clear();
+    const mag = this.structure?.magMom;
+    if (this.showMagneticMoments && mag && style !== 'wireframe') {
+      const arrows: MagneticArrowInstance[] = [];
+      for (let i = 0; i < species.length; i++) {
+        if (this.elementVisibility.get(species[i]) === false) continue;
+        const unitIdx = this.expandedUnitCellIndex[i] ?? i;
+        const m = mag[unitIdx];
+        if (!m) continue;
+        const len = Math.sqrt(m[0] * m[0] + m[1] * m[1] + m[2] * m[2]);
+        if (len < 1e-4) continue;
+        arrows.push({ position: positions[i], moment: m });
+      }
+      if (arrows.length > 0) this.magneticArrowRenderer.rebuild(arrows);
+    }
+    this.magneticArrowRenderer.setVisible(this.showMagneticMoments);
 
     if (style !== 'space-filling' && this.showBonds) {
       this.bondRenderer.rebuild(species, positions, bonds, this.bondStyle, style);

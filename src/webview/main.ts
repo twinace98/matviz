@@ -169,6 +169,33 @@ function updatePartialOccupancySectionVisibility() {
   }
 }
 
+// 16.3 Magnetic moments
+const magmomCheck = document.getElementById('magmom-check') as HTMLInputElement;
+const magCmapRedblue = document.getElementById('mag-cmap-redblue') as HTMLInputElement;
+const magCmapViridis = document.getElementById('mag-cmap-viridis') as HTMLInputElement;
+if (magmomCheck) {
+  magmomCheck.addEventListener('change', () => renderer.setShowMagneticMoments(magmomCheck.checked));
+}
+if (magCmapRedblue) {
+  magCmapRedblue.addEventListener('change', () => { if (magCmapRedblue.checked) renderer.setMagneticColormap('redblue'); });
+}
+if (magCmapViridis) {
+  magCmapViridis.addEventListener('change', () => { if (magCmapViridis.checked) renderer.setMagneticColormap('viridis'); });
+}
+function updateMagneticMomentsSectionVisibility() {
+  const section = document.getElementById('magnetic-moments-section');
+  if (!section) return;
+  if (renderer.hasMagneticMoments()) {
+    section.classList.remove('hidden');
+    if (magmomCheck) magmomCheck.checked = renderer.getShowMagneticMoments();
+    const cmap = renderer.getMagneticColormap();
+    if (magCmapRedblue) magCmapRedblue.checked = (cmap === 'redblue');
+    if (magCmapViridis) magCmapViridis.checked = (cmap === 'viridis');
+  } else {
+    section.classList.add('hidden');
+  }
+}
+
 // Camera toggle
 const cameraBtn = document.getElementById('camera-toggle') as HTMLButtonElement;
 if (cameraBtn) {
@@ -379,7 +406,8 @@ window.addEventListener('pointerup', debouncedSave);
 window.addEventListener('wheel', debouncedSave);
 [scA, scB, scC, styleSelect, impostorCheck, stepAngleInput, stepZoomInput,
   bondsCheck, labelsCheck, polyCheck, boundaryCheck, celldashCheck, axisSizeSlider,
-  ellipsoidsCheck, ellipsoidContour50, ellipsoidContour90, partialOccCheck]
+  ellipsoidsCheck, ellipsoidContour50, ellipsoidContour90, partialOccCheck,
+  magmomCheck, magCmapRedblue, magCmapViridis]
   .forEach((el) => el?.addEventListener('change', debouncedSave));
 cameraBtn?.addEventListener('click', debouncedSave);
 paletteBtn?.addEventListener('click', debouncedSave);
@@ -610,6 +638,7 @@ window.addEventListener('message', (event) => {
       updateBondSkipHint();
       updateEllipsoidsSectionVisibility();
       updatePartialOccupancySectionVisibility();
+      updateMagneticMomentsSectionVisibility();
       break;
     }
     case 'resetCamera': renderer.resetCamera(); break;

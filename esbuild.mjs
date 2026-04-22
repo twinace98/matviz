@@ -82,6 +82,19 @@ const symEigenTestConfig = {
   sourcemap: false,
 };
 
+// MAGMOM parsing test (16.3). Verifies POSCAR title-line MAGMOM extraction
+// (collinear, non-collinear, compressed-form rejection, and no-MAGMOM
+// regression).
+const magmomTestConfig = {
+  entryPoints: ['scripts/test-magmom.ts'],
+  bundle: true,
+  outfile: 'dist/test-magmom.js',
+  format: 'cjs',
+  platform: 'node',
+  target: 'node18',
+  sourcemap: false,
+};
+
 if (watch) {
   const ctx1 = await esbuild.context(extensionConfig);
   const ctx2 = await esbuild.context(webviewConfig);
@@ -96,5 +109,6 @@ if (watch) {
   await esbuild.build(harnessConfig);
   await esbuild.build(parserTestConfig);
   await esbuild.build(symEigenTestConfig);
+  await esbuild.build(magmomTestConfig);
   console.log('Build complete.');
 }
