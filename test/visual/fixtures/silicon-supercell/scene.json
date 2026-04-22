@@ -1,0 +1,9 @@
+{
+  "input": "../../../fixtures/silicon.poscar",
+  "view": "std",
+  "supercell": [2, 2, 2],
+  "palette": "dark",
+  "width": 800,
+  "height": 600,
+  "bg": "#1e1e1e"
+}

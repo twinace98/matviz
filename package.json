@@ -19,22 +19,54 @@
         "viewType": "matviz.crystalViewer",
         "displayName": "Crystal Structure Viewer",
         "selector": [
-          { "filenamePattern": "*.cif" },
-          { "filenamePattern": "*.xsf" },
-          { "filenamePattern": "*.axsf" },
-          { "filenamePattern": "*.poscar" },
-          { "filenamePattern": "*.vasp" },
-          { "filenamePattern": "POSCAR" },
-          { "filenamePattern": "CONTCAR" },
-          { "filenamePattern": "*.xyz" },
-          { "filenamePattern": "*.pdb" },
-          { "filenamePattern": "*.cube" },
-          { "filenamePattern": "*.cub" },
-          { "filenamePattern": "CHGCAR" },
-          { "filenamePattern": "AECCAR0" },
-          { "filenamePattern": "AECCAR2" },
-          { "filenamePattern": "PARCHG" },
-          { "filenamePattern": "geometry.in" }
+          {
+            "filenamePattern": "*.cif"
+          },
+          {
+            "filenamePattern": "*.xsf"
+          },
+          {
+            "filenamePattern": "*.axsf"
+          },
+          {
+            "filenamePattern": "*.poscar"
+          },
+          {
+            "filenamePattern": "*.vasp"
+          },
+          {
+            "filenamePattern": "POSCAR"
+          },
+          {
+            "filenamePattern": "CONTCAR"
+          },
+          {
+            "filenamePattern": "*.xyz"
+          },
+          {
+            "filenamePattern": "*.pdb"
+          },
+          {
+            "filenamePattern": "*.cube"
+          },
+          {
+            "filenamePattern": "*.cub"
+          },
+          {
+            "filenamePattern": "CHGCAR"
+          },
+          {
+            "filenamePattern": "AECCAR0"
+          },
+          {
+            "filenamePattern": "AECCAR2"
+          },
+          {
+            "filenamePattern": "PARCHG"
+          },
+          {
+            "filenamePattern": "geometry.in"
+          }
         ],
         "priority": "default"
       },
@@ -42,11 +74,21 @@
         "viewType": "matviz.crystalViewer",
         "displayName": "Crystal Structure Viewer",
         "selector": [
-          { "filenamePattern": "*.in" },
-          { "filenamePattern": "*.out" },
-          { "filenamePattern": "*.stdin" },
-          { "filenamePattern": "*.stdout" },
-          { "filenamePattern": "*.pw" }
+          {
+            "filenamePattern": "*.in"
+          },
+          {
+            "filenamePattern": "*.out"
+          },
+          {
+            "filenamePattern": "*.stdin"
+          },
+          {
+            "filenamePattern": "*.stdout"
+          },
+          {
+            "filenamePattern": "*.pw"
+          }
         ],
         "priority": "option"
       }
@@ -107,15 +149,20 @@
   "scripts": {
     "build": "node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
+    "test:visual": "node dist/test-visual-harness.js",
+    "test:visual:update": "node dist/test-visual-harness.js --update-baseline",
     "package": "vsce package",
     "install-skill": "bash scripts/install-skill.sh",
     "install-all": "npm run build && npx @vscode/vsce package --no-dependencies && code --install-extension vscode-matviz-$npm_package_version.vsix --force && npm run install-skill"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
+    "@types/pngjs": "^6.0.5",
     "@types/three": "^0.170.0",
     "@types/vscode": "^1.85.0",
     "esbuild": "^0.24.0",
+    "pixelmatch": "^7.1.0",
+    "pngjs": "^7.0.0",
     "three": "^0.170.0",
     "typescript": "^5.7.0"
   },

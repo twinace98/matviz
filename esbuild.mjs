@@ -44,6 +44,20 @@ const cliHelpersConfig = {
   sourcemap: false,
 };
 
+// Visual-regression harness (16.0). Bundled as CJS so we can import
+// pixelmatch (which ships ESM-only) — esbuild transpiles it inline.
+// Externalize puppeteer; pixelmatch and pngjs get bundled.
+const harnessConfig = {
+  entryPoints: ['test/visual/harness.ts'],
+  bundle: true,
+  outfile: 'dist/test-visual-harness.js',
+  format: 'cjs',
+  platform: 'node',
+  target: 'node18',
+  sourcemap: true,
+  external: ['puppeteer'],
+};
+
 if (watch) {
   const ctx1 = await esbuild.context(extensionConfig);
   const ctx2 = await esbuild.context(webviewConfig);
@@ -55,5 +69,6 @@ if (watch) {
   await esbuild.build(webviewConfig);
   await esbuild.build(cliConfig);
   await esbuild.build(cliHelpersConfig);
+  await esbuild.build(harnessConfig);
   console.log('Build complete.');
 }
