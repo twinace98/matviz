@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path // empty' | grep -q 'scripts/render\\.ts$' && printf '%s' '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"scripts/render.ts was modified — remember to also update skills/matviz-render/SKILL.md (CLI flags table + recipes) and README.md (Headless CLI Renderer section) to keep them in sync before committing.\"}}' || true"
+          }
+        ]
+      }
+    ]
+  }
+}

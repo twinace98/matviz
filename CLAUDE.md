@@ -95,6 +95,12 @@ When extending the CLI renderer:
   sync with `elements-data.ts` if they change.
 - Chromium flags `--enable-unsafe-swiftshader --allow-file-access-from-files`
   are required — do not remove.
+- **Always keep `skills/matviz-render/SKILL.md` in sync with `scripts/render.ts`.**
+  Any change to CLI flags, defaults, recipes, or supported formats must land in the
+  same commit as the SKILL.md update. A PostToolUse hook in
+  `.claude/settings.json` prints a reminder when CLI files are edited without
+  touching SKILL.md; treat that reminder as a hard stop before commit. README.md
+  also lists CLI flags — update there too.
 
 ## Test fixtures
 

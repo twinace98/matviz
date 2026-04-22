@@ -1,6 +1,9 @@
 # MatViz — Crystal Structure Viewer for VSCode
 
-Interactive 3D crystal structure visualization as a VSCode extension, inspired by VESTA.
+Interactive 3D crystal structure visualization as a VSCode extension,
+inspired by VESTA. Handles parsing, rendering, measurement, isosurfaces,
+and PNG export for 10+ computational-materials file formats from a single
+editor tab.
 
 ## Quick start
 
@@ -8,15 +11,15 @@ Interactive 3D crystal structure visualization as a VSCode extension, inspired b
 2. Open a structure file in VSCode. Unambiguous formats (`.cif`, `.xsf`, `POSCAR`, `.xyz`, `.pdb`, `.cube`, `CHGCAR`, `geometry.in`, …) open directly in the 3D viewer.
 3. For QE input/output (`.in`, `.out`, `.stdin`, `.stdout`, `.pw`) the file opens as text first — click **Open in MatViz** in the editor title bar to render it.
 4. Rotate with the mouse (left-drag) or the ↑↓←→ buttons / keys. Zoom with the wheel or the +/− buttons. Everything else lives in the collapsible left side panel.
-5. Hover any button or control for a tooltip describing what it does.
+5. Press `?` any time to see all keyboard shortcuts. Hover any button or control for a tooltip.
 
-## Supported Formats
+## Supported formats
 
 | Format | Extensions / Filenames | Default open |
 |---|---|---|
 | CIF | `*.cif` | MatViz |
 | POSCAR / VASP | `*.poscar`, `*.vasp`, `POSCAR`, `CONTCAR` | MatViz |
-| XSF | `*.xsf`, `*.axsf` | MatViz |
+| XSF (incl. AXSF, BLOCK_DATAGRID_3D) | `*.xsf`, `*.axsf` | MatViz |
 | XYZ | `*.xyz` | MatViz |
 | PDB | `*.pdb` | MatViz |
 | Gaussian Cube | `*.cube`, `*.cub` | MatViz |
@@ -30,109 +33,224 @@ etc.) open as text by default; press the **Open in MatViz** button in the
 editor title bar to switch to the viewer. If parsing fails, an error toast
 with an **Open as Text** action is shown.
 
-## UI Layout
+## UI layout
 
 ```
 +--[Top Toolbar]----------------------------------------------+
 |  a b c a* b* c*  |  home  |  arrows/rotate  |  zoom  | cam |
 +--+--+-------------------------------------------------------+
-|Mo|  | Side Panel (resizable)                                 |
-|de|  |  - Structure info                                      |
+|Mo|  | Side Panel (resizable, collapsible)                    |
+|de|  |  - Structure info (formula, atom count, spacegroup, V) |
 |  |  |  - Display style                                       |
 |ba|  |  - Camera (Ortho/Persp)                                |
 |r |  |  - Visibility toggles                                  |
 |  |  |  - Axes size slider                                    |
-|  |  |  - Supercell inputs                                    |
-|  |  |  - Iso-level (volumetric)                              |
-|  |  |  - Atom properties                                     |
-|  |  |  - Bond properties                                     |
+|  |  |  - Supercell inputs (1–5 per axis)                     |
+|  |  |  - Iso-level slider + numeric input                    |
+|  |  |  - Atoms (per-element color/radius/visibility)         |
+|  |  |  - Bonds (per-pair min/max cutoffs)                    |
+|  |  |  - Polyhedra centers (per-element checkboxes)          |
+|  |  |  - Options (impostor rendering toggle, etc.)           |
 +--+--+-------------------------------------------------------+
 |                                                              |
 |                    3D Viewport                                |
-|                                                              |
-|  [Axis indicator]                                            |
+|  [Axis indicator a/b/c]                                      |
 +--------------------------------------------------------------+
 ```
+
+The side panel supports two layout modes:
+
+- **Offset** (default): panel sits beside the canvas, canvas never hidden.
+- **Overlay**: panel floats over the canvas (toggle via the layout button in the panel header).
+
+Collapse with the ▶ handle; drag the right edge to resize. All
+layout/width/collapsed state is persisted per file.
 
 ## Features
 
 ### Rendering
-- **4 display styles**: Ball-and-stick, Space-filling, Stick, Wireframe
-- **Orthographic / Perspective** camera toggle
-- **Atom labels** (sprite-based, always on top)
-- **Coordination polyhedra** with transparent faces and edge outlines
-- **Depth fog** matching VSCode theme
-- **Adaptive LOD**: geometry detail scales with atom count
+
+- **Four display styles**: Ball-and-stick (default), Space-filling (vdW
+  spheres), Stick (bonds only, atoms shrunk to stick radius), Wireframe
+  (lines).
+- **Sphere + cylinder impostors** (enabled by default): ray-sphere /
+  ray-cylinder intersection in the fragment shader with `gl_FragDepth`,
+  replacing tessellated geometry. Produces pixel-perfect atoms and bonds
+  at a fraction of the triangle count; scales to 50 000 atoms. Toggle in
+  the Options section of the side panel if you want the Phong geometry
+  path (e.g., for debugging color mismatch).
+- **Chunked InstancedMesh frustum culling**: atoms are spatially binned
+  per element so off-screen chunks are skipped — relevant for large
+  supercells and stress fixtures (16 k+ atoms).
+- **Adaptive LOD**: sphere tessellation scales down as atom count grows.
+- **Depth fog**: dense clusters fade toward the background; fog color
+  tracks the VSCode theme.
 
 ### Navigation
-- **Mouse**: Left-drag to rotate (quaternion-based, no gimbal lock), right-drag to pan, scroll to zoom
-- **Constrained rotation**: Shift+drag locks to single axis, Ctrl/Cmd+drag for screen-Z roll
-- **Quick views**: a, b, c, a\*, b\*, c\* axis buttons with animated transitions
-- **Standard orientation**: Home button (c-axis up, view from a\*)
-- **Step rotation**: Arrow buttons and keyboard arrows (Shift for fine 1-degree steps)
-- **Zoom buttons**: +/- with configurable step percentage
+
+- **Mouse**: left-drag to rotate (quaternion-based, no gimbal lock),
+  right-drag to pan, scroll to zoom.
+- **Constrained rotation**: Shift+drag locks to one axis, Ctrl/Cmd+drag
+  gives screen-Z roll.
+- **Quick views**: a, b, c, a\*, b\*, c\* buttons with animated
+  transitions.
+- **Standard orientation**: Home button (c-axis up, view from a\*).
+- **Step rotation**: arrow buttons / keyboard arrows. Shift+arrow for a
+  1° fine step. The default step size is set by the **Step(°)** input in
+  the top toolbar.
+- **Camera toggle**: Orthographic / Perspective button. Orthographic is
+  the default for crystallography; perspective is useful for inspecting
+  3D polyhedral networks.
 
 ### Crystallography
-- **CIF symmetry expansion**: Parses `_symmetry_equiv_pos_as_xyz` and `_space_group_symop_operation_xyz`, applies to asymmetric unit with duplicate removal
-- **Supercell expansion**: 1-5x per axis
-- **Boundary atoms**: VESTA-style periodic image atoms on cell faces/edges/corners (toggle on/off)
-- **Unit cell wireframe**: Solid outer boundary + dashed internal cell boundaries for supercells
-- **Lattice planes**: Add by Miller indices (hkl) via command palette
-- **Axis indicator**: a (red), b (green), c (blue) arrows in bottom-left corner, synchronized with camera rotation
+
+- **CIF symmetry expansion**: Parses both
+  `_symmetry_equiv_pos_as_xyz` and `_space_group_symop_operation_xyz`,
+  applies operations to the asymmetric unit with duplicate removal
+  (tolerance 1e-3 Å fractional).
+- **Supercell expansion**: 1–5× per axis, visualized with dashed internal
+  cell boundaries. Bonds, isosurfaces, and polyhedra all re-tile
+  consistently with the supercell.
+- **Boundary atoms** (on by default): atoms that sit on cell
+  faces/edges/corners are duplicated to their periodic-image positions
+  so the unit cell looks complete from all sides. Wraps fractional
+  coordinates into [0, 1) before duplication.
+- **Unit cell wireframe**: solid outer edges; dashed internal edges when
+  supercell > 1.
+- **Lattice planes**: add by Miller indices (hkl) from the command
+  palette; any number of planes can be stacked, each in a different
+  color.
+- **Axis indicator** (bottom-left inset): a (red), b (green), c (blue)
+  arrows synchronized with camera rotation. Size configurable (60–400 px).
 
 ### Interaction
-- **Navigate mode** (default): Click atom to view info (element, unit cell index, cartesian/fractional coords)
-- **Measure mode**: Click 2 atoms for distance, 3 for angle, 4 for dihedral angle. Measurements shown as dashed lines with labels.
-- **Selection highlight**: Selected atoms highlighted in cyan
-- Mode toggle via left toolbar (diamond / arrow icons)
 
-### Atom & Bond Properties
-- **Per-element**: Color picker, radius slider, visibility toggle
-- **Per-bond pair**: Enable/disable checkbox, min/max distance cutoff inputs
-- Expand "Atoms" / "Bonds" sections in the side panel
+- **Navigate mode** (default): click an atom to see its element, global
+  index, unit-cell index, cartesian coords, and fractional coords.
+- **Measure mode**: pick
+  - 2 atoms for distance (Å),
+  - 3 atoms for bond angle (°, yellow dashed legs),
+  - 4 atoms for dihedral (°, cyan+magenta dashed plane outlines).
+- **Selection highlight**: selected atoms turn cyan; `Esc` clears them.
+- **Hybrid GPU picking**: for structures with ≥ 5 000 atoms, atom picks
+  go through a 1×1 WebGL render target (~1 ms); below the threshold the
+  CPU raycaster path is used. Both are transparent to the user.
+- Mode is chosen from the left toolbar (navigate / measure icons).
 
-### Volumetric Data
-- **Isosurface rendering** via CPU marching cubes (positive/negative lobes in blue/red)
-- **Iso-level control**: Slider + numeric input for precise values
-- Supported in XSF (BLOCK_DATAGRID_3D), Gaussian Cube, and CHGCAR formats
+### Atom and bond properties
+
+- **Per-element overrides** (Atoms section):
+  - Color picker.
+  - Radius slider (0.1–1.5 Å).
+  - Visibility checkbox.
+- **Per-pair bond parameters** (Bonds section):
+  - Enable/disable per pair (e.g., ignore Sr–Ti in perovskite).
+  - Min/max distance cutoffs. Default: `min = 0.1`, `max = r_A + r_B + 0.3`.
+- **Bond-detection skip hint**: if the structure exceeds 5 000 atoms,
+  bond detection is skipped by default (O(N) spatial hashing, but each
+  voxel scan is nontrivial at that size). A banner in the Bonds section
+  explains the skip and shows an estimated time; click **Compute anyway**
+  to run it.
+
+### Coordination polyhedra
+
+- Toggle with the **Polyhedra** checkbox in the Visibility section.
+- On activation, a **Polyhedra centers** sub-panel appears listing every
+  detected element with a checkbox. Check the elements that should act
+  as polyhedral centers (e.g., Ti in a perovskite, Si in a silicate).
+- **Auto-detect heuristic** pre-ticks elements based on their first
+  coordination shell:
+  - Max first-shell coordination in [4, 8]
+  - Dominant ligand element ≠ self
+  - Dominant ligand covers ≥ 85 % of neighbors across atoms of that
+    element
+- This rejects A-site 12-coordinated cations in perovskites, bridging
+  anions (O in ABO3), and homoatomic metallic coordinations. You can
+  always override via the checkboxes.
+- Polyhedra are built with Three.js `ConvexGeometry` (QuickHull) so
+  faces are topologically correct — no spurious interior diagonals on
+  near-planar facets.
+- Polyhedra default to **off on each file-open** (not restored from
+  saved state) so the viewer always starts with a clean scene.
+
+### Volumetric data (isosurfaces)
+
+- **Supported sources**: XSF `BLOCK_DATAGRID_3D`, Gaussian Cube, CHGCAR /
+  AECCAR0/2 / PARCHG.
+- **Positive / negative lobes** in blue / red (VESTA convention), both
+  rendered simultaneously; flip by changing the sign of the level.
+- **Controls**: a slider plus a numeric input for precise levels. The
+  slider range auto-fits the data's value range on load.
+- **Supercell tiling**: the volumetric grid is PBC-tiled to the full
+  supercell before marching cubes runs, so inner cell boundaries are
+  seamless. The iso reaches exactly to the cell boundary (the `pbc` flag
+  on `marchingCubes` processes one additional cube per axis with
+  modulo-wrapped samples).
+- **Boundary caps** (Method A + Option 2 from the design notes): the six
+  outer supercell faces are filled where the iso exits the cell. 2D
+  marching-squares on each boundary slice produces the cap polygon,
+  closing the iso and giving it a solid "cut" appearance instead of open
+  edges.
+- **Non-periodic data caveat**: the supercell tiling assumes the input
+  is periodic (DFT CHGCAR/XSF always are). Molecular cube files that
+  happen to be stored with a large padding box may show visible seams
+  between tiled copies — expected.
 
 ### Export
-- **Screenshot**: Camera icon in top toolbar, exports PNG at 2x resolution
-- **Structure export**: `MatViz: Export as CIF` / `MatViz: Export as POSCAR` via command palette
-- **Open as text**: Document icon opens the file in VSCode's default text editor
 
-### UI
-- All UI elements follow VSCode theme (dark/light)
-- Side panel is resizable by dragging the right edge
-- State persistence: display style, camera position, supercell settings are preserved across tab switches
-- **Tooltips on hover** for every toolbar button, slider, input, and side-panel control — hover any control to see what it does
+- **Screenshot** (camera icon in the top toolbar): PNG at 2× pixel
+  ratio, composited against the current background.
+- **Structure export**: `MatViz: Export as CIF` and `MatViz: Export as
+  POSCAR` via the command palette; uses the native VSCode save dialog,
+  so there is no path-traversal risk.
+- **Open as text**: document icon in the title bar opens the file in
+  VSCode's default text editor alongside the 3D view.
 
-## Keyboard Shortcuts
+### UI details
+
+- All UI follows the active VSCode theme (dark / light).
+- **Palette toggle**: ☽ / ☀ button in the top toolbar flips between
+  dark-palette (brightened CPK colors) and light-palette color schemes;
+  independent from the editor theme.
+- **Responsive toolbar**: compacts itself (labels → icons → wrap) via
+  CSS container queries between 400 and 2000 px editor width.
+- **Persistent state** (schema v1, stored per-webview): display style,
+  camera position/zoom, orthographic/perspective choice, supercell,
+  per-element overrides, per-pair bond parameters, layout mode, panel
+  width and collapsed state, iso level, axis indicator size, impostor
+  toggle, polyhedra-center selection. `showPolyhedra` is intentionally
+  **not** restored so every file-open starts with polyhedra off.
+- **Tooltips on hover** for every toolbar button, slider, input, and
+  side-panel control.
+
+## Keyboard shortcuts
 
 | Key | Action |
 |---|---|
-| `↑` / `↓` | Rotate model up / down (model-space, matches button direction) |
+| `↑` / `↓` | Rotate model up / down (model-space, matches arrow button direction) |
 | `←` / `→` | Rotate model left / right |
-| Shift + Arrow | Fine rotate (1-degree step) |
+| Shift + arrow | Fine rotate (1° step) |
 | `+` / `-` | Zoom in / out |
-| `Escape` | Clear selection and measurements |
+| `Escape` | Clear selection and measurements; hide info tooltip |
+| `?` | Open the shortcut-reference modal |
 
-The rotation *step size* is set by the **Step(°)** input in the top toolbar
-(default 15°); the zoom step by **Step(%)** (default 10%).
+The rotation *step size* is set by the **Step(°)** input in the top
+toolbar (default 15°); the zoom step by **Step(%)** (default 10%).
 
-## Commands (Command Palette)
+## Commands (command palette)
 
-Open the Command Palette with **Cmd+Shift+P** (macOS) / **Ctrl+Shift+P** (Windows/Linux) and type `MatViz` to see all available commands.
+Open the command palette with **Cmd+Shift+P** (macOS) / **Ctrl+Shift+P**
+(Windows/Linux) and type `MatViz`.
 
 | Command | Description |
 |---|---|
-| `MatViz: Reset Camera` | Reset to default view |
+| `MatViz: Reset Camera` | Reset to the default view |
 | `MatViz: Toggle Bonds` | Show/hide all bonds |
 | `MatViz: View Along Direction [uvw]` | Camera along crystallographic direction |
 | `MatViz: View Normal to Plane (hkl)` | Camera normal to Miller plane |
-| `MatViz: Add Lattice Plane (hkl)` | Add colored lattice plane |
+| `MatViz: Add Lattice Plane (hkl)` | Add a colored lattice plane |
 | `MatViz: Clear Lattice Planes` | Remove all lattice planes |
-| `MatViz: Export Screenshot` | Save PNG screenshot |
+| `MatViz: Export Screenshot` | Save a PNG of the current viewport |
 | `MatViz: Export as CIF` | Export structure as CIF |
 | `MatViz: Export as POSCAR` | Export structure as POSCAR |
 
@@ -140,11 +258,11 @@ Open the Command Palette with **Cmd+Shift+P** (macOS) / **Ctrl+Shift+P** (Window
 
 ```bash
 npm install
-npm run build          # esbuild dual-entry (extension + webview)
+npm run build          # esbuild dual-entry (extension + webview + CLI renderer)
 npx tsc --noEmit       # type check only
 ```
 
-## Install from Source
+## Install from source
 
 Full install (VSCode extension + Claude CLI skill):
 
@@ -159,15 +277,19 @@ Or step-by-step:
 npm install
 npm run build
 npx @vscode/vsce package --no-dependencies
-code --install-extension vscode-matviz-0.13.1.vsix --force
+code --install-extension vscode-matviz-0.15.0.vsix --force
 npm run install-skill   # optional — only if you use Claude Code
 ```
 
-## Headless CLI Renderer
+After reinstalling, close and reopen any matviz tab to pick up the new
+build.
 
-MatViz also ships a command-line renderer for producing PNG images of
+## Headless CLI renderer
+
+MatViz ships a command-line renderer for producing PNG images of
 structures without opening VSCode — useful in scripts, CI pipelines, or
-AI-assisted report workflows.
+AI-assisted report workflows. Uses Puppeteer + SwiftShader for software
+WebGL2, so it works in headless Linux environments.
 
 ```bash
 node dist/render.js structure.cif -o out.png [options]
@@ -177,33 +299,53 @@ Common options:
 
 | Flag | Purpose |
 |---|---|
-| `-o <path>` | Output PNG path (required) |
+| `-o <path>` | Output PNG path |
+| `--width N` / `--height N` | Image size (default 1920×1080) |
 | `--style <ball-and-stick\|space-filling\|stick\|wireframe>` | Rendering style |
 | `--view <a\|b\|c\|a*\|b*\|c*\|std>` | Predefined camera view |
+| `--rotate x,y,z` | Additional rotation in degrees |
 | `--supercell a,b,c` | Expand cell (e.g. `2,2,1`) |
 | `--camera <ortho\|persp>` | Projection |
 | `--palette <dark\|light>` | Theme |
-| `--bg <color>` | Background color (CSS hex/name) |
-| `--labels` / `--polyhedra` | Element labels / coordination polyhedra |
-| `--iso <level>` | Isosurface level for volumetric files |
-| `--no-bonds` / `--no-boundary` / `--no-cell` | Disable features |
+| `--bg <color>` | Background color (CSS hex / name / `transparent`) |
+| `--labels` | Show element labels |
+| `--polyhedra` | Show coordination polyhedra (auto-detected centers) |
+| `--polyhedra-centers Ti,Fe` | Comma-separated list of polyhedra-center elements (implies `--polyhedra`) |
+| `--iso <level>` | Isosurface level for volumetric files (both +level and −level are rendered) |
+| `--plane h,k,l` | Add a lattice plane by Miller indices |
+| `--no-bonds` / `--no-boundary` / `--no-cell` | Disable bonds / boundary atoms / cell wireframe |
 
 Run `node dist/render.js --help` for the full list.
 
-The `matviz-render` Claude skill lets Claude Code invoke the CLI when you
-ask things like "render this POSCAR" or "보고서에 구조 이미지 넣어줘".
-`npm run install-all` installs both the extension and the skill;
-`npm run install-skill` installs the skill only.
+The `matviz-render` Claude skill lets Claude Code invoke the CLI when
+you ask things like "render this POSCAR" or "보고서에 구조 이미지
+넣어줘". `npm run install-all` installs both the extension and the
+skill; `npm run install-skill` installs the skill only.
 
 ## Architecture
 
 Two execution contexts, two bundles:
 
-- **Extension host** (Node.js): File parsing, webview lifecycle, commands
-- **Webview** (browser): Three.js rendering, user interaction
+- **Extension host** (Node.js, `dist/extension.js`): file I/O, parsing,
+  custom-editor lifecycle, commands.
+- **Webview** (browser, `dist/webview.js` loaded inside VSCode's
+  sandboxed iframe): Three.js rendering, shaders, user interaction.
+- **CLI renderer** (`dist/render.js` + `dist/render-helpers.js`):
+  Node/Puppeteer driver that runs the same rendering pipeline in a
+  headless Chromium page.
 
-Data flow: `file → parser → CrystalStructure JSON → postMessage → webview → Three.js scene`
+Data flow: `file → parser → CrystalStructure JSON → postMessage →
+webview → Three.js scene`.
+
+Parsers output a common `CrystalStructure` shape (`{ lattice, species,
+positions, pbc, volumetric? }`) so adding a format is a parser module +
+one line in `src/parsers/index.ts`.
+
+Element data lives in a single source
+(`src/shared/elements-data.ts`, 80 elements) imported by both the
+extension host and the webview. The CLI renderer inlines a trimmed
+subset because its HTML page must be self-contained for Puppeteer.
 
 ## License
 
-See LICENSE file.
+MIT — see LICENSE file.
