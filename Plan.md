@@ -16,6 +16,8 @@ VESTA-inspired crystal structure viewer as a VSCode extension. Goal: provide com
 - Bond detection is O(N) via spatial hashing, hard-skipped for >5000 atoms. UI surfaces this with a "Bond detection skipped / Compute anyway" inline hint (v0.14.0).
 - Custom editor is `CustomReadonlyEditorProvider<CrystalDocument>` — writing back to the file requires moving to the editable variant, which affects v0.18.1 (split-pane) design.
 - Impostor rendering tone does not exactly match the Phong-material path despite `RECIPROCAL_PI` + `linearToSRGB` alignment (shipped v0.15.0 known issue). Targeted for v0.15.1.
+- **Isosurface supercell requires periodic data**. `tileVolumetricPBC` + single-MC expects the volumetric grid to be truly periodic (DFT CHGCAR/XSF always are). Non-periodic cube files (like molecules in vacuum) will show visible seams between tiled cells. Also `marchingCubes(..., pbc=true)` is required for the iso to reach the exact cell boundary — only `buildIsosurface` should pass `pbc=true`; other callers (if any appear) keep the default `pbc=false`.
+- **Polyhedra centers auto-detect is chemistry-heuristic, not a universal truth**. The first-coord-shell + 85%-dominant-ligand rule works for typical ionic/covalent crystals (NaCl, TiO2, perovskites, spinels, ZnO) but will exclude: (1) clusters with mixed-element ligand shells like ABO3's bridging O, (2) pure metallic fcc/bcc (homoatomic coordination). Users can always override via the side-panel checkboxes.
 
 ---
 
@@ -125,6 +127,19 @@ VESTA-inspired crystal structure viewer as a VSCode extension. Goal: provide com
 **Deliverables fold-in**: supersedes the "render snapshot regression" item in the Test infrastructure section and the "impostor vs Phong tone/sRGB mismatch" entry in the tech-debt registry.
 
 **Estimated effort**: ~1.5 days — majority in 15.1.0 harness work, which is reused for all later rendering changes (v0.16 thermal ellipsoids, v0.17 trajectory playback).
+
+---
+
+## v0.15.2 — Polyhedra + iso polish (unreleased; on `main`)
+
+Two fix commits already landed on `main` after v0.15.0; version bump pending user decision (standalone v0.15.2 vs. bundle into v0.15.1 vs. fold into v0.16 kickoff).
+
+| # | Fix | Commit |
+|---|-----|--------|
+| 15.2.a | Polyhedra overhaul — `ConvexGeometry` replaces hand-rolled hull; per-element "Polyhedra centers" side-panel UI with auto-detect via first-coordination-shell + aggregated-ligand-purity; `showPolyhedra` no longer restored from saved state so matviz init always shows polyhedra off; CLI `--polyhedra-centers Ti,Fe` flag | `1d1ea8a` |
+| 15.2.b | Isosurface supercell + caps + PBC — data tiled PBC to supercell, single MC pass, 6 outer-face caps via 2D `marchingSquaresFill`; `marchingCubes` gains `pbc` flag so iso reaches exact boundary; b-face cap slice axis-order bug fixed | `e495ba0` |
+
+**Exit criterion (if released as v0.15.2)**: manual verification pass on `perovskite`, `tio2-rutile`, `nacl`, `zno` (polyhedra) and a periodic CHGCAR/XSF fixture with supercell > 1 (iso caps). Both already confirmed in session.
 
 ---
 
@@ -267,7 +282,9 @@ Tracked separately so individual items can slot into any version patch without r
 
 | Area | Item | File:line | Proposed slot |
 |------|------|-----------|----------------|
-| Renderer | Redundant condition on negative isosurface branch — collapse `if (isoLevel > 0)` duplicate into one block calling marching cubes twice | `src/webview/renderer.ts:525, 543` | any patch |
+| Renderer | Polyhedra with mixed-element partial occupancy — current heuristic rejects sites where the dominant ligand covers <85%; intentional, but revisit when v0.16 partial occupancy lands | `src/webview/renderer.ts` autoDetectPolyhedraCenters | v0.16 (revisit) |
+| Renderer | Isosurface tile-MC memory blowup on large supercells — `tileVolumetricPBC` copies full Float32Array `na·nb·nc` times (128³ × 3×3×3 ≈ 215M voxels ≈ 860 MB). Add a guard/warning above some threshold, or fall back to mesh-tiling for small iso levels | `src/webview/marchingCubes.ts tileVolumetricPBC` | any patch / large-data tracker |
+| Renderer | Iso saddle cases (MS fill cases 5 & 10) split into disjoint triangles without checking bilinear center. Fine for visualization, but topologically ambiguous for borderline saddles | `src/webview/marchingCubes.ts marchingSquaresFill` | low priority |
 | Parsers | Degenerate-lattice NaN guards (γ=0/180, a=b=c=0) | `src/parsers/cifParser.ts:366`, `pdbParser.ts:66` | v0.16 (extended crystallography touches these anyway) |
 | Parsers | XYZ numeric atomic-number fallback returns `'X'` — should call `getElementByNumber` like XSF | `src/parsers/xyzParser.ts:47-52` | any patch |
 | Parsers | Auto-detect CIF via `content.includes('_cell_length_a')` — naive, gated only by prior filename checks | `src/parsers/index.ts:61` | low; keep noted |
@@ -281,6 +298,9 @@ Tracked separately so individual items can slot into any version patch without r
 - Axis label `CanvasTexture` texture leak → component extracted to `AxisIndicator` with `textures.push(tex)` discipline. Shipped v0.14.0 (`src/webview/axisIndicator.ts:78`).
 - `index.ts` dead aims branch → refactored so `.out/.pw/.stdout/.stdin` dispatches to QE in a separate block from `.in` → FHI-aims. No more overlap.
 - `renderer.ts` split — `BondRenderer` extraction. Shipped v0.15.0 (`src/webview/bondRenderer.ts`). `MaterialRegistry` still inline via `trackMat` — adequate, not module-extracted.
+- Redundant negative-iso branch collapsed into single `addLobe` helper. Shipped in commit `e495ba0` as part of the iso supercell rewrite.
+- Polyhedra hand-rolled convex hull producing phantom diagonal triangles (algorithmic, not from the registry but recurring user complaint) → replaced with `ConvexGeometry`. Shipped in commit `1d1ea8a`.
+- Isosurface "doesn't work in supercell" + missing boundary caps + 1/Nx-gap at cell boundary → tiled-data single-MC + marching-squares caps + `pbc` flag. Shipped in commit `e495ba0`.
 
 ---
 
