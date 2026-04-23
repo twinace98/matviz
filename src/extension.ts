@@ -132,6 +132,46 @@ export function activate(context: vscode.ExtensionContext) {
       provider.postMessageToActive({ type: 'clearWulff' });
     })
   );
+
+  // 17.2 multi-phase overlay
+  context.subscriptions.push(
+    vscode.commands.registerCommand('matviz.addPhase', async () => {
+      const picks = await vscode.window.showOpenDialog({
+        canSelectMany: false,
+        openLabel: 'Add as overlay phase',
+        filters: {
+          'Crystal structures': ['cif', 'xsf', 'axsf', 'poscar', 'vasp', 'xyz', 'pdb'],
+        },
+      });
+      if (!picks || picks.length === 0) return;
+      const uri = picks[0];
+      try {
+        const data = await vscode.workspace.fs.readFile(uri);
+        const content = new TextDecoder('utf-8').decode(data);
+        const filename = uri.path.split('/').pop() || 'phase';
+        // Lazy import to avoid circular module load order with parsers
+        const { parseStructureFile } = await import('./parsers/index.js');
+        const parsed = parseStructureFile(content, filename);
+        // Default offset 0 (overlap), opacity 0.5. User can re-invoke
+        // with different offsets via subsequent add — first cut keeps
+        // input simple; offset/opacity slider is a v0.17.x side-panel UI.
+        provider.postMessageToActive({
+          type: 'addPhase',
+          data: parsed.structure,
+          offset: [0, 0, 0],
+          opacity: 0.5,
+        });
+      } catch (err: any) {
+        vscode.window.showErrorMessage(`Could not load phase: ${err?.message ?? String(err)}`);
+      }
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('matviz.clearPhases', () => {
+      provider.postMessageToActive({ type: 'clearPhases' });
+    })
+  );
 }
 
 export function deactivate() {}

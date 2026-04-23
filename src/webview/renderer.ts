@@ -108,6 +108,13 @@ export class CrystalRenderer {
   // across frames so user state isn't lost during playback).
   private trajectory: CrystalTrajectory | null = null;
   private currentFrameIndex = 0;
+  // v0.17.2 multi-phase overlay — additional structures rendered alongside
+  // the primary. Each is rendered as transparent atoms (no bonds/boundary)
+  // with a configurable cartesian offset. Rebuilt when addPhase/clearPhases
+  // is called; not affected by setFrame (primary trajectory plays
+  // independently of overlaid phases).
+  private secondaryPhasesGroup = new THREE.Group();
+  private secondaryPhases: { struct: CrystalStructure; offset: [number, number, number]; opacity: number }[] = [];
   // 17.1.5 perf knob: when true, every setFrame re-runs detectBonds
   // (O(N) spatial hash). Default false — first frame's bonds are inherited
   // by all subsequent frames, accepting that bonds may be slightly off
@@ -201,7 +208,7 @@ export class CrystalRenderer {
     dir2.position.set(-5, -5, -5);
     this.scene.add(ambient, dir1, dir2);
 
-    this.scene.add(this.atomGroup, this.bondRenderer.group, this.cellGroup, this.labelGroup, this.polyhedraGroup, this.measureGroup, this.planeGroup, this.isoGroup, this.ellipsoidRenderer.group, this.magneticArrowRenderer.group, this.wulffGroup);
+    this.scene.add(this.atomGroup, this.bondRenderer.group, this.cellGroup, this.labelGroup, this.polyhedraGroup, this.measureGroup, this.planeGroup, this.isoGroup, this.ellipsoidRenderer.group, this.magneticArrowRenderer.group, this.wulffGroup, this.secondaryPhasesGroup);
     this.labelGroup.renderOrder = 999;
     this.labelGroup.visible = false;
     this.polyhedraGroup.visible = false;
@@ -291,6 +298,75 @@ export class CrystalRenderer {
   /** Cheap helper for UI gating (used by 17.1.5 auto-disable threshold). */
   getAtomCount(): number {
     return this.structure ? this.structure.species.length : 0;
+  }
+
+  // 17.2 multi-phase overlay API.
+  addPhase(struct: CrystalStructure, offset: [number, number, number] = [0, 0, 0], opacity = 0.5): void {
+    this.secondaryPhases.push({ struct, offset, opacity });
+    this.rebuildSecondaryPhases();
+  }
+
+  clearPhases(): void {
+    this.secondaryPhases = [];
+    this.rebuildSecondaryPhases();
+  }
+
+  getPhaseCount(): number { return this.secondaryPhases.length; }
+
+  private rebuildSecondaryPhases(): void {
+    // Clear group + dispose per-phase materials/geometries (they're owned
+    // here, not via this.materials registry, since they're tied to the
+    // phase lifecycle independently of buildVisuals).
+    for (const child of [...this.secondaryPhasesGroup.children]) {
+      this.secondaryPhasesGroup.remove(child);
+      const mesh = child as THREE.InstancedMesh;
+      if (mesh.geometry) mesh.geometry.dispose();
+      const m = mesh.material as THREE.MeshPhongMaterial;
+      if (m && typeof m.dispose === 'function') m.dispose();
+    }
+    if (this.secondaryPhases.length === 0) {
+      this.requestRender();
+      return;
+    }
+    const sphereGeo = new THREE.SphereGeometry(1, 16, 12);
+    // We share one geometry across all phases; lifetime ends when next
+    // rebuildSecondaryPhases disposes it (above loop catches it through
+    // the InstancedMesh.geometry chain).
+    for (const phase of this.secondaryPhases) {
+      const groups = new Map<string, number[]>();
+      for (let i = 0; i < phase.struct.species.length; i++) {
+        const s = phase.struct.species[i];
+        if (!groups.has(s)) groups.set(s, []);
+        groups.get(s)!.push(i);
+      }
+      for (const [el, indices] of groups) {
+        const elData = getElement(el);
+        const color = this.getElementColor(el);
+        const mat = new THREE.MeshPhongMaterial({
+          color: new THREE.Color(color),
+          shininess: 30,
+          transparent: true,
+          opacity: phase.opacity,
+          depthWrite: false,
+        });
+        const mesh = new THREE.InstancedMesh(sphereGeo, mat, indices.length);
+        const dummy = new THREE.Object3D();
+        const r = elData.displayRadius;
+        for (let k = 0; k < indices.length; k++) {
+          const idx = indices[k];
+          const p = phase.struct.positions[idx];
+          dummy.position.set(p[0] + phase.offset[0], p[1] + phase.offset[1], p[2] + phase.offset[2]);
+          dummy.scale.setScalar(r);
+          dummy.updateMatrix();
+          mesh.setMatrixAt(k, dummy.matrix);
+        }
+        mesh.instanceMatrix.needsUpdate = true;
+        mesh.computeBoundingSphere();
+        mesh.renderOrder = 1; // after opaque atoms for correct alpha blending
+        this.secondaryPhasesGroup.add(mesh);
+      }
+    }
+    this.requestRender();
   }
 
   getFrameCount(): number {

@@ -17,7 +17,10 @@ export type ExtensionMessage =
   | { type: 'clearWulff' }
   // v0.17 trajectory
   | { type: 'loadTrajectory'; data: CrystalTrajectory }
-  | { type: 'setFrame'; index: number };
+  | { type: 'setFrame'; index: number }
+  // v0.17.2 multi-phase overlay
+  | { type: 'addPhase'; data: CrystalStructure; offset?: [number, number, number]; opacity?: number }
+  | { type: 'clearPhases' };
 
 export type WebviewMessage =
   | { type: 'ready' }

@@ -154,6 +154,14 @@
       {
         "command": "matviz.clearWulff",
         "title": "MatViz: Clear Wulff Construction"
+      },
+      {
+        "command": "matviz.addPhase",
+        "title": "MatViz: Add Phase (overlay)"
+      },
+      {
+        "command": "matviz.clearPhases",
+        "title": "MatViz: Clear Overlay Phases"
       }
     ]
   },

@@ -786,6 +786,12 @@ window.addEventListener('message', (event) => {
       break;
     }
     case 'setFrame': renderer.setFrame(msg.index); break;
+    case 'addPhase':
+      renderer.addPhase(msg.data, msg.offset, msg.opacity);
+      break;
+    case 'clearPhases':
+      renderer.clearPhases();
+      break;
     case 'loadVolumetric': {
       renderer.loadVolumetric(msg.data);
       const isoSection = document.getElementById('iso-section')!;
