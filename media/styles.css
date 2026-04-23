@@ -546,3 +546,27 @@ body.layout-offset #canvas {
   z-index: 20;
   max-width: 400px;
 }
+
+/* ===== v0.17 Trajectory ===== */
+.trajectory-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.trajectory-controls .panel-btn {
+  flex: 0 0 auto;
+  min-width: 32px;
+  padding: 2px 8px;
+}
+.trajectory-controls input[type="range"] {
+  flex: 1;
+}
+.traj-frame-label {
+  flex: 0 0 auto;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground, #aaa);
+  min-width: 56px;
+  text-align: right;
+  white-space: nowrap;
+}

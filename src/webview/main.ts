@@ -169,6 +169,76 @@ function updatePartialOccupancySectionVisibility() {
   }
 }
 
+// 17.1.4 Trajectory playback (frame slider + play/pause + rAF loop)
+const trajPlayBtn = document.getElementById('traj-play-btn') as HTMLButtonElement | null;
+const trajSlider = document.getElementById('traj-slider') as HTMLInputElement | null;
+const trajFrameLabel = document.getElementById('traj-frame-label') as HTMLSpanElement | null;
+let trajPlaying = false;
+let trajRafId: number | null = null;
+const TRAJ_TARGET_FPS = 30;
+const TRAJ_TARGET_FRAME_MS = 1000 / TRAJ_TARGET_FPS;
+let trajLastTick = 0;
+
+function setTrajFrame(idx: number) {
+  renderer.setFrame(idx);
+  if (trajSlider) trajSlider.value = String(idx);
+  if (trajFrameLabel) {
+    trajFrameLabel.textContent = `${idx + 1} / ${renderer.getFrameCount()}`;
+  }
+}
+
+function trajPlayLoop(t: number) {
+  if (!trajPlaying) return;
+  if (t - trajLastTick >= TRAJ_TARGET_FRAME_MS) {
+    trajLastTick = t;
+    const next = (renderer.getCurrentFrame() + 1) % renderer.getFrameCount();
+    setTrajFrame(next);
+  }
+  trajRafId = requestAnimationFrame(trajPlayLoop);
+}
+
+function trajSetPlaying(p: boolean) {
+  trajPlaying = p;
+  if (trajPlayBtn) trajPlayBtn.textContent = p ? '⏸' : '▶';
+  if (p) {
+    trajLastTick = performance.now();
+    trajRafId = requestAnimationFrame(trajPlayLoop);
+  } else if (trajRafId !== null) {
+    cancelAnimationFrame(trajRafId);
+    trajRafId = null;
+  }
+}
+
+if (trajPlayBtn) {
+  trajPlayBtn.addEventListener('click', () => trajSetPlaying(!trajPlaying));
+}
+if (trajSlider) {
+  trajSlider.addEventListener('input', () => {
+    if (trajPlaying) trajSetPlaying(false);   // user scrub pauses playback
+    setTrajFrame(parseInt(trajSlider.value));
+  });
+}
+
+function updateTrajectorySectionVisibility() {
+  const section = document.getElementById('trajectory-section');
+  if (!section) return;
+  if (renderer.hasTrajectory()) {
+    section.classList.remove('hidden');
+    const n = renderer.getFrameCount();
+    if (trajSlider) {
+      trajSlider.min = '0';
+      trajSlider.max = String(n - 1);
+      trajSlider.value = String(renderer.getCurrentFrame());
+    }
+    if (trajFrameLabel) {
+      trajFrameLabel.textContent = `${renderer.getCurrentFrame() + 1} / ${n}`;
+    }
+  } else {
+    if (trajPlaying) trajSetPlaying(false);
+    section.classList.add('hidden');
+  }
+}
+
 // 16.3 Magnetic moments
 const magmomCheck = document.getElementById('magmom-check') as HTMLInputElement;
 const magCmapRedblue = document.getElementById('mag-cmap-redblue') as HTMLInputElement;
@@ -639,6 +709,9 @@ window.addEventListener('message', (event) => {
       updateEllipsoidsSectionVisibility();
       updatePartialOccupancySectionVisibility();
       updateMagneticMomentsSectionVisibility();
+      // 17.1.4: hide trajectory section if previously a multi-frame file was
+      // loaded in this webview session (loadStructure resets trajectory).
+      updateTrajectorySectionVisibility();
       break;
     }
     case 'resetCamera': renderer.resetCamera(); break;
@@ -661,6 +734,8 @@ window.addEventListener('message', (event) => {
       // 17.1.0: trajectory entry. For 1-frame trajectories the path is
       // observably equivalent to loadStructure; for >1 frame, 17.1.4 wires
       // up the side-panel slider via updateTrajectorySectionVisibility().
+      // 17.1.4: stop any in-progress playback before swapping data.
+      trajSetPlaying(false);
       renderer.loadTrajectory(msg.data);
       const f0 = msg.data.frames[0];
       const fallback = msg.data.frames.length > 1
@@ -688,6 +763,7 @@ window.addEventListener('message', (event) => {
       updateEllipsoidsSectionVisibility();
       updatePartialOccupancySectionVisibility();
       updateMagneticMomentsSectionVisibility();
+      updateTrajectorySectionVisibility();
       break;
     }
     case 'setFrame': renderer.setFrame(msg.index); break;

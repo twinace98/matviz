@@ -317,6 +317,14 @@ export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvide
         <label class="toggle" title="Render partial-occupancy sites as transparent atoms with opacity = occupancy ratio (per-site preserved)"><input type="checkbox" id="partial-occ-check"><span>Show partial occupancy</span></label>
       </div>
     </div>
+    <div class="panel-section hidden" id="trajectory-section">
+      <div class="panel-label" title="MD trajectory from AXSF / XDATCAR / extended XYZ">Trajectory</div>
+      <div class="trajectory-controls">
+        <button id="traj-play-btn" class="panel-btn" title="Play / Pause">▶</button>
+        <input type="range" id="traj-slider" min="0" max="0" step="1" value="0" title="Scrub frames">
+        <span id="traj-frame-label" class="traj-frame-label">0 / 0</span>
+      </div>
+    </div>
     <div class="panel-section hidden" id="magnetic-moments-section">
       <div class="panel-label" title="Magnetic moment vectors from VASP MAGMOM (POSCAR title line) or CIF _atom_site_moment_*">Magnetic moments</div>
       <div class="toggle-group">
