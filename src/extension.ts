@@ -172,6 +172,18 @@ export function activate(context: vscode.ExtensionContext) {
       provider.postMessageToActive({ type: 'clearPhases' });
     })
   );
+
+  // v0.17.1 (17.3) comparison mode
+  context.subscriptions.push(
+    vscode.commands.registerCommand('matviz.compareToPhase', () => {
+      provider.postMessageToActive({ type: 'compareToPhase' });
+    })
+  );
+  context.subscriptions.push(
+    vscode.commands.registerCommand('matviz.clearComparison', () => {
+      provider.postMessageToActive({ type: 'clearComparison' });
+    })
+  );
 }
 
 export function deactivate() {}

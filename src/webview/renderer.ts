@@ -12,6 +12,8 @@ import { BondRenderer, type BondInfo } from './bondRenderer';
 import { SphereImpostorMesh, createImpostorMaterial } from './sphereImpostor';
 import { EllipsoidRenderer, type EllipsoidInstance, type ProbabilityContour } from './ellipsoidRenderer';
 import { MagneticArrowRenderer, type MagneticArrowInstance, type Colormap as MagColormap } from './magneticArrowRenderer';
+import { DisplacementArrowRenderer } from './displacementArrowRenderer';
+import { matchByNN } from './nnMatching';
 import { computeWulffGeometry, planesFromMillerIndices } from './wulff';
 import { AtomPickingRenderer } from './picking';
 import type { VolumetricData } from '../parsers/types';
@@ -115,6 +117,14 @@ export class CrystalRenderer {
   // independently of overlaid phases).
   private secondaryPhasesGroup = new THREE.Group();
   private secondaryPhases: { struct: CrystalStructure; offset: [number, number, number]; opacity: number }[] = [];
+
+  // v0.17.1 (17.3) comparison mode — displacement arrows between primary
+  // current frame and first secondary phase. `comparisonActive` + the
+  // cached `comparisonSecondaryPhase` reference drive frame-aware
+  // recomputation when `setFrame()` advances the primary trajectory.
+  private displacementArrowRenderer = new DisplacementArrowRenderer();
+  private comparisonActive = false;
+  private comparisonSecondaryPhase: { struct: CrystalStructure; offset: [number, number, number]; opacity: number } | null = null;
   // 17.1.5 perf knob: when true, every setFrame re-runs detectBonds
   // (O(N) spatial hash). Default false — first frame's bonds are inherited
   // by all subsequent frames, accepting that bonds may be slightly off
@@ -208,7 +218,7 @@ export class CrystalRenderer {
     dir2.position.set(-5, -5, -5);
     this.scene.add(ambient, dir1, dir2);
 
-    this.scene.add(this.atomGroup, this.bondRenderer.group, this.cellGroup, this.labelGroup, this.polyhedraGroup, this.measureGroup, this.planeGroup, this.isoGroup, this.ellipsoidRenderer.group, this.magneticArrowRenderer.group, this.wulffGroup, this.secondaryPhasesGroup);
+    this.scene.add(this.atomGroup, this.bondRenderer.group, this.cellGroup, this.labelGroup, this.polyhedraGroup, this.measureGroup, this.planeGroup, this.isoGroup, this.ellipsoidRenderer.group, this.magneticArrowRenderer.group, this.wulffGroup, this.secondaryPhasesGroup, this.displacementArrowRenderer.group);
     this.labelGroup.renderOrder = 999;
     this.labelGroup.visible = false;
     this.polyhedraGroup.visible = false;
@@ -289,6 +299,9 @@ export class CrystalRenderer {
       this.updateAxisIndicator();
     }
     this.rebuild(false, !this.recomputeBondsPerFrame);
+    // 17.3.1 frame-aware comparison: re-match against the same secondary
+    // phase using new primary positions.
+    if (this.comparisonActive) this.recomputeComparison();
   }
 
   // 17.1.5: trajectory bond-recompute toggle.
@@ -308,10 +321,56 @@ export class CrystalRenderer {
 
   clearPhases(): void {
     this.secondaryPhases = [];
+    // Comparison depends on the first secondary phase — clear it too.
+    if (this.comparisonActive) this.clearComparison();
     this.rebuildSecondaryPhases();
   }
 
   getPhaseCount(): number { return this.secondaryPhases.length; }
+
+  // 17.3 comparison mode API.
+  compareToPhase(): { ok: boolean; reason?: string } {
+    if (this.secondaryPhases.length === 0) {
+      return { ok: false, reason: 'no secondary phase — run "MatViz: Add Phase" first' };
+    }
+    if (this.getAtomCount() > 5000) {
+      return { ok: false, reason: 'atom count > 5000 — comparison disabled for perf' };
+    }
+    this.comparisonActive = true;
+    this.comparisonSecondaryPhase = this.secondaryPhases[0];
+    this.recomputeComparison();
+    return { ok: true };
+  }
+
+  clearComparison(): void {
+    this.comparisonActive = false;
+    this.comparisonSecondaryPhase = null;
+    this.displacementArrowRenderer.clear();
+    this.requestRender();
+  }
+
+  isComparisonActive(): boolean { return this.comparisonActive; }
+
+  private recomputeComparison(): void {
+    if (!this.comparisonActive || !this.comparisonSecondaryPhase || !this.structure) return;
+    const sec = this.comparisonSecondaryPhase;
+    // Apply phase offset to secondary positions so matching lives in the
+    // same world space the user sees (primary cartesian + offset-shifted
+    // secondary cartesian).
+    const secPos: [number, number, number][] = sec.struct.positions.map(p => [
+      p[0] + sec.offset[0],
+      p[1] + sec.offset[1],
+      p[2] + sec.offset[2],
+    ]);
+    const result = matchByNN(
+      this.structure.species,
+      this.structure.positions,
+      sec.struct.species,
+      secPos,
+    );
+    this.displacementArrowRenderer.rebuild(result.pairs, this.structure.positions);
+    this.requestRender();
+  }
 
   private rebuildSecondaryPhases(): void {
     // Clear group + dispose per-phase materials/geometries (they're owned

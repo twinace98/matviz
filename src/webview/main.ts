@@ -792,6 +792,17 @@ window.addEventListener('message', (event) => {
     case 'clearPhases':
       renderer.clearPhases();
       break;
+    case 'compareToPhase': {
+      const r = renderer.compareToPhase();
+      if (!r.ok) {
+        // eslint-disable-next-line no-console
+        console.warn('compareToPhase:', r.reason);
+      }
+      break;
+    }
+    case 'clearComparison':
+      renderer.clearComparison();
+      break;
     case 'loadVolumetric': {
       renderer.loadVolumetric(msg.data);
       const isoSection = document.getElementById('iso-section')!;

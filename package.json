@@ -162,6 +162,14 @@
       {
         "command": "matviz.clearPhases",
         "title": "MatViz: Clear Overlay Phases"
+      },
+      {
+        "command": "matviz.compareToPhase",
+        "title": "MatViz: Compare to Phase (displacement arrows)"
+      },
+      {
+        "command": "matviz.clearComparison",
+        "title": "MatViz: Clear Comparison"
       }
     ]
   },

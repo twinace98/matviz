@@ -20,7 +20,10 @@ export type ExtensionMessage =
   | { type: 'setFrame'; index: number }
   // v0.17.2 multi-phase overlay
   | { type: 'addPhase'; data: CrystalStructure; offset?: [number, number, number]; opacity?: number }
-  | { type: 'clearPhases' };
+  | { type: 'clearPhases' }
+  // v0.17.1 (17.3) comparison mode
+  | { type: 'compareToPhase' }
+  | { type: 'clearComparison' };
 
 export type WebviewMessage =
   | { type: 'ready' }
