@@ -123,6 +123,17 @@ const trajectoryTestConfig = {
   sourcemap: false,
 };
 
+// NN matching test (v0.17.1.0). Pure-math sanity for atom matching algorithm.
+const nnMatchingTestConfig = {
+  entryPoints: ['scripts/test-nn-matching.ts'],
+  bundle: true,
+  outfile: 'dist/test-nn-matching.js',
+  format: 'cjs',
+  platform: 'node',
+  target: 'node18',
+  sourcemap: false,
+};
+
 if (watch) {
   const ctx1 = await esbuild.context(extensionConfig);
   const ctx2 = await esbuild.context(webviewConfig);
@@ -140,5 +151,6 @@ if (watch) {
   await esbuild.build(magmomTestConfig);
   await esbuild.build(wulffTestConfig);
   await esbuild.build(trajectoryTestConfig);
+  await esbuild.build(nnMatchingTestConfig);
   console.log('Build complete.');
 }
