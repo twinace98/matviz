@@ -316,6 +316,7 @@ Common options:
 | `--magmom` | Render magnetic-moment arrows on atoms (auto-on if POSCAR title has `MAGMOM = ...` or CIF carries `_atom_site_moment_*`) |
 | `--magmom-colormap <m>` | Arrow color: `redblue` (default; sign-coded by mz) or `viridis` (sequential by \|m\|) |
 | `--magmom-scale <s>` | Arrow length, Å per μB (default `1.0`) |
+| `--partial-occupancy` | Render sites with `_atom_site_occupancy` < 1 as transparent atoms (opacity = occupancy ratio). Default off — dominant species shown opaque. |
 | `--no-bonds` / `--no-boundary` / `--no-cell` | Disable bonds / boundary atoms / cell wireframe |
 
 Run `node dist/render.js --help` for the full list.

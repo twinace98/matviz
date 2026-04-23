@@ -1,0 +1,9 @@
+{
+  "input": "../../../fixtures/test-occupancy.cif",
+  "view": "c",
+  "palette": "dark",
+  "width": 800,
+  "height": 600,
+  "bg": "#1e1e1e",
+  "partialOccupancy": true
+}

@@ -70,6 +70,7 @@ before reporting completion. Silent success is not success.
 | `--magmom` | flag | off | Render magnetic-moment arrows on atoms (auto-on if structure has magMom from POSCAR title MAGMOM or CIF `_atom_site_moment_*`) |
 | `--magmom-colormap` | `redblue`\|`viridis` | `redblue` | Arrow color: `redblue` = sign-coded by mz (FM/AFM intuition); `viridis` = sequential by \|m\| |
 | `--magmom-scale` | number | `1.0` | Arrow length (Å per μB) |
+| `--partial-occupancy` | flag | off | Render sites with `_atom_site_occupancy` < 1 as transparent atoms (opacity = occupancy). Default off shows the dominant species opaque. |
 | `--test` | flag | — | Render a test scene (red sphere) for smoke-testing |
 | `-h, --help` | flag | — | Print usage |
 
@@ -139,6 +140,17 @@ POSCAR title or pass the file with that title rewritten.
 
 CIF files use `_atom_site_moment_cartn_*` or `_atom_site_moment_crystalaxis_*`
 loops; the parser handles both.
+
+**Partial occupancy (mineral mixed sites)**
+```bash
+node {{MATVIZ_DIR}}/dist/render.js mineral_mix.cif \
+  -o mix.png --partial-occupancy
+```
+Sites with CIF `_atom_site_occupancy < 1` (e.g. (Mg,Fe) sites in
+orthopyroxene) render as stacked transparent spheres with opacity equal to
+each site's occupancy ratio — the perceived color is a weighted blend of the
+species' palette colors. Default off shows the dominant species opaque,
+which matches pre-v0.16 behavior for non-aware fixtures.
 
 ## Supported input formats
 

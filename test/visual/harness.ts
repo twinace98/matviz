@@ -57,6 +57,7 @@ interface SceneConfig {
   magmom?: boolean;
   magmomColormap?: 'redblue' | 'viridis';
   magmomScale?: number;
+  partialOccupancy?: boolean;
 }
 
 interface FixtureResult {
@@ -112,6 +113,7 @@ function buildArgs(cfg: SceneConfig, outPath: string): string[] {
   if (cfg.magmom) args.push('--magmom');
   if (cfg.magmomColormap) args.push('--magmom-colormap', cfg.magmomColormap);
   if (cfg.magmomScale != null) args.push('--magmom-scale', String(cfg.magmomScale));
+  if (cfg.partialOccupancy) args.push('--partial-occupancy');
   return args;
 }
 

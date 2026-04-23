@@ -50,6 +50,8 @@ interface RenderOptions {
   magmom: boolean;
   magmomColormap: 'redblue' | 'viridis';
   magmomScale: number;
+  // 16.2 partial occupancy
+  partialOccupancy: boolean;
 }
 
 function parseArgs(argv: string[]): RenderOptions {
@@ -77,6 +79,7 @@ function parseArgs(argv: string[]): RenderOptions {
     magmom: false,
     magmomColormap: 'redblue',
     magmomScale: 1.0,
+    partialOccupancy: false,
   };
 
   const args = argv.slice(2);
@@ -119,6 +122,7 @@ function parseArgs(argv: string[]): RenderOptions {
         break;
       }
       case '--magmom-scale': opts.magmomScale = parseFloat(args[++i]); opts.magmom = true; break;
+      case '--partial-occupancy': opts.partialOccupancy = true; break;
       case '-h': case '--help': printHelp(); process.exit(0);
       default:
         if (!a.startsWith('-')) positional.push(a);
@@ -166,6 +170,9 @@ Options:
                          magMom from POSCAR title MAGMOM or CIF _atom_site_moment_*)
   --magmom-colormap <c>  redblue (default; sign-coded by mz)|viridis (sequential by |m|)
   --magmom-scale <s>     Arrow length scale in Å per μB (default: 1.0)
+  --partial-occupancy    Render sites with _atom_site_occupancy < 1 as transparent
+                         atoms with opacity = occupancy (per-site preserved). Default
+                         off — full atoms shown, mixed-site overlap hidden.
   --test                 Render test scene (red sphere)
   -h, --help             Show this help`);
 }
@@ -250,6 +257,7 @@ const OPTS = ${JSON.stringify({
     magmom: opts.magmom,
     magmomColormap: opts.magmomColormap,
     magmomScale: opts.magmomScale,
+    partialOccupancy: opts.partialOccupancy,
   })};
 
 // --- Element data (generated from src/shared/elements-data.ts) ---
@@ -315,6 +323,12 @@ const species = [], positions = [];
 // when structure has no magMom field or --magmom is off.
 const haveMagMom = OPTS.magmom && Array.isArray(structure.magMom);
 const expandedMagMom = haveMagMom ? [] : null;
+// 16.2 partial occupancy: same parallel-array trick. Tracking the per-atom
+// occupancy lets the partial render block below pick exact opacity per site
+// (preserving Mg/Fe 0.7/0.3 mixed-site visualization) and lets the regular
+// atom path skip those indices to avoid drawing them twice.
+const havePartialOcc = OPTS.partialOccupancy && Array.isArray(structure.occupancy);
+const expandedOccupancy = havePartialOcc ? [] : null;
 
 for (let ia = 0; ia < na; ia++) {
   for (let ib = 0; ib < nb; ib++) {
@@ -332,6 +346,7 @@ for (let ia = 0; ia < na; ia++) {
           structure.positions[j][2]+off[2],
         ]);
         if (expandedMagMom) expandedMagMom.push(structure.magMom[j]);
+        if (expandedOccupancy) expandedOccupancy.push(structure.occupancy[j] != null ? structure.occupancy[j] : 1.0);
       }
     }
   }
@@ -376,6 +391,7 @@ if (OPTS.boundary && structure.lattice) {
             species.push(structure.species[j]);
             positions.push(cp);
             if (expandedMagMom) expandedMagMom.push(structure.magMom[j]);
+            if (expandedOccupancy) expandedOccupancy.push(structure.occupancy[j] != null ? structure.occupancy[j] : 1.0);
           }
         }
       }
@@ -472,8 +488,21 @@ if (OPTS.camera !== 'persp') {
 }
 
 // --- Render atoms ---
+// 16.2 partial occupancy: split off atoms with occupancy<1 from the regular
+// per-element grouping so the partial render block (below) handles them
+// individually with per-site opacity. Without this filter we'd draw the
+// atom twice (opaque + transparent overlapping).
+const partialIdxSet = new Set();
+if (expandedOccupancy) {
+  for (let i = 0; i < positions.length; i++) {
+    const occ = expandedOccupancy[i];
+    if (occ != null && occ < 1.0 - 1e-6) partialIdxSet.add(i);
+  }
+}
+
 const elGroups = new Map();
 for (let i = 0; i < species.length; i++) {
+  if (partialIdxSet.has(i)) continue;
   const s = species[i];
   if (!elGroups.has(s)) elGroups.set(s, []);
   elGroups.get(s).push(i);
@@ -507,6 +536,47 @@ for (const [el, indices] of elGroups) {
   }
   mesh.instanceMatrix.needsUpdate = true;
   scene.add(mesh);
+}
+
+// --- 16.2 Partial-occupancy atoms (per-site transparent Mesh) ---
+// Matches src/webview/renderer.ts buildAtoms partial render block. Per-atom
+// THREE.Mesh (NOT InstancedMesh) so each gets its exact opacity. Material
+// cached by (color, opacity) so Mg+Fe at same site at same occupancy share.
+// depthWrite:false + renderOrder:1 so stacked partial atoms blend correctly
+// and render after opaque atoms.
+if (partialIdxSet.size > 0 && expandedOccupancy) {
+  const partialSphereGeo = new THREE.SphereGeometry(1, 24, 16);
+  const matCache = new Map();
+  for (const i of partialIdxSet) {
+    const el = species[i];
+    const elData = getEl(el);
+    const color = getColor(el);
+    const occ = expandedOccupancy[i];
+    let r;
+    switch (OPTS.style) {
+      case 'space-filling': r = elData.vdw; break;
+      case 'stick': r = 0.15; break;
+      case 'wireframe': r = elData.dr; break;
+      default: r = elData.dr; break;
+    }
+    const matKey = color + '_' + occ.toFixed(3);
+    let mat = matCache.get(matKey);
+    if (!mat) {
+      mat = new THREE.MeshPhongMaterial({
+        color: new THREE.Color(color),
+        shininess: 80,
+        transparent: true,
+        opacity: occ,
+        depthWrite: false,
+      });
+      matCache.set(matKey, mat);
+    }
+    const mesh = new THREE.Mesh(partialSphereGeo, mat);
+    mesh.position.set(positions[i][0], positions[i][1], positions[i][2]);
+    mesh.scale.setScalar(r);
+    mesh.renderOrder = 1;
+    scene.add(mesh);
+  }
 }
 
 // --- 16.3 Magnetic moment arrows (matches src/webview/magneticArrowRenderer.ts) ---
