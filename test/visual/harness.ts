@@ -60,6 +60,7 @@ interface SceneConfig {
   partialOccupancy?: boolean;
   ellipsoids?: boolean;
   ellipsoidContour?: 0.5 | 0.9;
+  wulff?: string;
 }
 
 interface FixtureResult {
@@ -118,6 +119,7 @@ function buildArgs(cfg: SceneConfig, outPath: string): string[] {
   if (cfg.partialOccupancy) args.push('--partial-occupancy');
   if (cfg.ellipsoids) args.push('--ellipsoids');
   if (cfg.ellipsoidContour != null) args.push('--ellipsoid-contour', String(cfg.ellipsoidContour));
+  if (cfg.wulff) args.push('--wulff', cfg.wulff);
   return args;
 }
 

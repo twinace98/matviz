@@ -55,6 +55,8 @@ interface RenderOptions {
   // 16.1 thermal ellipsoids
   ellipsoids: boolean;
   ellipsoidContour: 0.5 | 0.9;
+  // 16.4 Wulff
+  wulff: Array<{ h: number; k: number; l: number; gamma: number }> | null;
 }
 
 function parseArgs(argv: string[]): RenderOptions {
@@ -85,6 +87,7 @@ function parseArgs(argv: string[]): RenderOptions {
     partialOccupancy: false,
     ellipsoids: false,
     ellipsoidContour: 0.5,
+    wulff: null,
   };
 
   const args = argv.slice(2);
@@ -137,6 +140,21 @@ function parseArgs(argv: string[]): RenderOptions {
         }
         opts.ellipsoidContour = v as 0.5 | 0.9;
         opts.ellipsoids = true;
+        break;
+      }
+      case '--wulff': {
+        // Format: "h,k,l,γ; h,k,l,γ; ..."  — semicolon-separated tuples
+        const raw = args[++i];
+        const planes: Array<{ h: number; k: number; l: number; gamma: number }> = [];
+        for (const seg of raw.split(';')) {
+          const t = seg.trim().split(/[\s,]+/).map(Number).filter(n => !isNaN(n));
+          if (t.length === 4) planes.push({ h: t[0], k: t[1], l: t[2], gamma: t[3] });
+        }
+        if (planes.length === 0) {
+          console.error(`--wulff: no valid (h,k,l,γ) tuples parsed from "${raw}"`);
+          process.exit(1);
+        }
+        opts.wulff = planes;
         break;
       }
       case '-h': case '--help': printHelp(); process.exit(0);
@@ -194,6 +212,11 @@ Options:
                          radius assumption excluded). Default off.
   --ellipsoid-contour <c> Probability contour 0.5 (default; χ²₃ ≈ 2.366) or
                          0.9 (χ²₃ ≈ 6.251). Implies --ellipsoids.
+  --wulff "<spec>"       Render Wulff polytope. Spec is semicolon-separated
+                         (h,k,l,γ) tuples — e.g. "1,0,0,1.0; 0,1,0,1.0;
+                         0,0,1,1.0; -1,0,0,1.0; 0,-1,0,1.0; 0,0,-1,1.0" for
+                         a cube. γ is per-face surface energy (relative units).
+                         Polytope rendered as semi-transparent blue mesh.
   --test                 Render test scene (red sphere)
   -h, --help             Show this help`);
 }
@@ -281,6 +304,7 @@ const OPTS = ${JSON.stringify({
     partialOccupancy: opts.partialOccupancy,
     ellipsoids: opts.ellipsoids,
     ellipsoidContour: opts.ellipsoidContour,
+    wulff: opts.wulff,
   })};
 
 // --- Element data (generated from src/shared/elements-data.ts) ---
@@ -576,6 +600,88 @@ for (const [el, indices] of elGroups) {
   }
   mesh.instanceMatrix.needsUpdate = true;
   scene.add(mesh);
+}
+
+// --- 16.4 Wulff polytope (matches src/webview/wulff.ts) ---
+// Triple-plane intersection: enumerate every C(n,3) triple, solve 3×3 system,
+// keep vertices that satisfy all OTHER planes. Bounding-box fallback ensures
+// bounded polytope for under-constrained input. ConvexGeometry triangulates.
+if (OPTS.wulff && structure.lattice) {
+  const lat = structure.lattice;
+  // Reciprocal-lattice basis (no 2π — directions only)
+  function det3(a, b, c) {
+    return a[0]*(b[1]*c[2]-b[2]*c[1]) - a[1]*(b[0]*c[2]-b[2]*c[0]) + a[2]*(b[0]*c[1]-b[1]*c[0]);
+  }
+  const Vol = det3(lat[0], lat[1], lat[2]);
+  const inv = 1 / Vol;
+  const aS = [(lat[1][1]*lat[2][2]-lat[1][2]*lat[2][1])*inv, (lat[1][2]*lat[2][0]-lat[1][0]*lat[2][2])*inv, (lat[1][0]*lat[2][1]-lat[1][1]*lat[2][0])*inv];
+  const bS = [(lat[2][1]*lat[0][2]-lat[2][2]*lat[0][1])*inv, (lat[2][2]*lat[0][0]-lat[2][0]*lat[0][2])*inv, (lat[2][0]*lat[0][1]-lat[2][1]*lat[0][0])*inv];
+  const cS = [(lat[0][1]*lat[1][2]-lat[0][2]*lat[1][1])*inv, (lat[0][2]*lat[1][0]-lat[0][0]*lat[1][2])*inv, (lat[0][0]*lat[1][1]-lat[0][1]*lat[1][0])*inv];
+
+  const userPlanes = OPTS.wulff.map(p => {
+    const n = [p.h*aS[0]+p.k*bS[0]+p.l*cS[0], p.h*aS[1]+p.k*bS[1]+p.l*cS[1], p.h*aS[2]+p.k*bS[2]+p.l*cS[2]];
+    const len = Math.sqrt(n[0]*n[0]+n[1]*n[1]+n[2]*n[2]);
+    return { normal: [n[0]/len, n[1]/len, n[2]/len], distance: p.gamma };
+  });
+  const maxD = Math.max(...OPTS.wulff.map(p => p.gamma));
+  const half = Math.max(maxD * 4, 5) * 0.5;
+  const allPlanes = userPlanes.concat([
+    { normal: [1,0,0],  distance: half },
+    { normal: [-1,0,0], distance: half },
+    { normal: [0,1,0],  distance: half },
+    { normal: [0,-1,0], distance: half },
+    { normal: [0,0,1],  distance: half },
+    { normal: [0,0,-1], distance: half },
+  ]);
+
+  function solveTriple(p1, p2, p3) {
+    const a = p1.normal, b = p2.normal, c = p3.normal;
+    const D = a[0]*(b[1]*c[2]-b[2]*c[1]) - a[1]*(b[0]*c[2]-b[2]*c[0]) + a[2]*(b[0]*c[1]-b[1]*c[0]);
+    if (Math.abs(D) < 1e-10) return null;
+    const id = 1/D;
+    const d1=p1.distance, d2=p2.distance, d3=p3.distance;
+    const x = (d1*(b[1]*c[2]-b[2]*c[1]) - a[1]*(d2*c[2]-b[2]*d3) + a[2]*(d2*c[1]-b[1]*d3))*id;
+    const y = (a[0]*(d2*c[2]-b[2]*d3) - d1*(b[0]*c[2]-b[2]*c[0]) + a[2]*(b[0]*d3-d2*c[0]))*id;
+    const z = (a[0]*(b[1]*d3-d2*c[1]) - a[1]*(b[0]*d3-d2*c[0]) + d1*(b[0]*c[1]-b[1]*c[0]))*id;
+    return [x, y, z];
+  }
+  function satisfies(p, planes) {
+    for (const pl of planes) {
+      const dot = p[0]*pl.normal[0] + p[1]*pl.normal[1] + p[2]*pl.normal[2];
+      if (dot > pl.distance + 1e-4) return false;
+    }
+    return true;
+  }
+  const verts = [];
+  const N = allPlanes.length;
+  const TOL2 = 1e-4 * 1e-4;
+  for (let i = 0; i < N; i++) for (let j = i+1; j < N; j++) for (let k = j+1; k < N; k++) {
+    const v = solveTriple(allPlanes[i], allPlanes[j], allPlanes[k]);
+    if (!v) continue;
+    if (!satisfies(v, allPlanes)) continue;
+    let dup = false;
+    for (const u of verts) {
+      const dx=u[0]-v[0], dy=u[1]-v[1], dz=u[2]-v[2];
+      if (dx*dx+dy*dy+dz*dz < TOL2) { dup = true; break; }
+    }
+    if (!dup) verts.push(v);
+  }
+  if (verts.length >= 4) {
+    const points = verts.map(v => new THREE.Vector3(v[0], v[1], v[2]));
+    const geo = new ConvexGeometry(points);
+    const mat = new THREE.MeshPhongMaterial({
+      color: 0x4dabf7, shininess: 60,
+      transparent: true, opacity: 0.5,
+      side: THREE.DoubleSide, depthWrite: false,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    const edges = new THREE.EdgesGeometry(geo);
+    const edgeMat = new THREE.LineBasicMaterial({ color: 0x1971c2 });
+    const wire = new THREE.LineSegments(edges, edgeMat);
+    scene.add(mesh, wire);
+  } else {
+    console.warn('Wulff: <4 vertices found — input planes do not bound a region; nothing rendered');
+  }
 }
 
 // --- 16.1 Thermal ellipsoids (matches src/webview/ellipsoidRenderer.ts) ---

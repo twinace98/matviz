@@ -319,6 +319,7 @@ Common options:
 | `--partial-occupancy` | Render sites with `_atom_site_occupancy` < 1 as transparent atoms (opacity = occupancy ratio). Default off — dominant species shown opaque. |
 | `--ellipsoids` | Render thermal ellipsoids for atoms with anisotropic U (CIF `_atom_site_aniso_U_*`). Phong-only path. |
 | `--ellipsoid-contour <c>` | Probability contour level: `0.5` (default) or `0.9`. Implies `--ellipsoids`. |
+| `--wulff "h,k,l,γ; …"` | Render Wulff polytope from semicolon-separated (h,k,l,γ) tuples. γ = relative surface energy per face. |
 | `--no-bonds` / `--no-boundary` / `--no-cell` | Disable bonds / boundary atoms / cell wireframe |
 
 Run `node dist/render.js --help` for the full list.

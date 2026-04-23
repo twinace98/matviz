@@ -73,6 +73,7 @@ before reporting completion. Silent success is not success.
 | `--partial-occupancy` | flag | off | Render sites with `_atom_site_occupancy` < 1 as transparent atoms (opacity = occupancy). Default off shows the dominant species opaque. |
 | `--ellipsoids` | flag | off | Render thermal ellipsoids for atoms with anisotropic U (CIF `_atom_site_aniso_U_*`). Phong-only path. |
 | `--ellipsoid-contour` | `0.5`\|`0.9` | `0.5` | Probability contour level. Implies `--ellipsoids`. |
+| `--wulff` | `"h,k,l,γ; …"` | off | Render Wulff polytope from semicolon-separated (h,k,l,γ) tuples. γ = relative surface energy per face. |
 | `--test` | flag | — | Render a test scene (red sphere) for smoke-testing |
 | `-h, --help` | flag | — | Print usage |
 
@@ -164,6 +165,19 @@ ellipsoids (eigendecomposition of Uᵢⱼ → principal axes). Default contour
 50% (χ²₃ ≈ 2.366); use `--ellipsoid-contour 0.9` for 90% (≈ 6.251). The
 90% volume is roughly 4.3× the 50% volume. Site without aniso data fall
 back to plain spheres in the same render.
+
+**Wulff construction (Au cuboctahedron)**
+```bash
+node {{MATVIZ_DIR}}/dist/render.js Au_POSCAR \
+  -o au_wulff.png --wulff "1,0,0,1.0; -1,0,0,1.0; 0,1,0,1.0; 0,-1,0,1.0; 0,0,1,1.0; 0,0,-1,1.0; 1,1,1,1.15; 1,1,-1,1.15; 1,-1,1,1.15; 1,-1,-1,1.15; -1,1,1,1.15; -1,1,-1,1.15; -1,-1,1,1.15; -1,-1,-1,1.15"
+```
+For each (h,k,l,γ): h·a* + k·b* + l·c* gives the outward face normal,
+γ the offset (Wulff theorem: distance ∝ surface energy). Triple-plane
+intersection gives polytope vertices, ConvexGeometry triangulates.
+The polytope sits at the cell origin as a semi-transparent blue mesh
+with dark blue wireframe edges. **No symmetry expansion** — list every
+crystallographically equivalent face explicitly. Cubic {100} = 6 faces,
+{111} = 8 faces.
 
 ## Supported input formats
 
