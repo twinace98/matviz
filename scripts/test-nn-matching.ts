@@ -103,4 +103,35 @@ function pass(msg: string): void { console.log(`✓ ${msg}`); }
   pass(`Large-N spatial bin: ${N} random atoms, secondary = shuffled primary, all displacements = 0`);
 }
 
-console.log('\nAll v0.17.1.0 NN-matching tests passed.');
+// ---- Test 5: PBC-aware (17.2.2) — atom wraps across cell boundary ----
+{
+  // 4Å cubic cell. Primary Na near +x face (frac 0.99 → cart 3.96).
+  // Secondary Na slightly past the boundary (frac 0.01 in next cell →
+  // cart 0.04 if wrapped to home cell; or cart 4.04 representing image).
+  // Test: secondary at cart 0.04 (atom wrapped). Without PBC, raw
+  // distance ≈ 3.92Å (fails 2.0 threshold). With PBC, minimum-image
+  // distance ≈ 0.08Å (matches).
+  const lattice: [number, number, number][] = [
+    [4, 0, 0], [0, 4, 0], [0, 0, 4],
+  ];
+  const species = ['Na'];
+  const primary: [number, number, number][] = [[3.96, 0, 0]];
+  const secondary: [number, number, number][] = [[0.04, 0, 0]];
+
+  // Without PBC: should fail (distance 3.92Å > 2.0Å threshold)
+  const noPbc = matchByNN(species, primary, species, secondary);
+  if (noPbc.unmatched.length !== 1) fail(`PBC test: without lattice, expected 1 unmatched (raw distance 3.92), got ${noPbc.unmatched.length}`);
+
+  // With PBC: should match (minimum-image distance 0.08Å)
+  const withPbc = matchByNN(species, primary, species, secondary, 2.0, lattice);
+  if (withPbc.unmatched.length !== 0) fail(`PBC test: with lattice, atom should match across boundary`);
+  if (withPbc.pairs.length !== 1) fail(`PBC test: expected 1 pair, got ${withPbc.pairs.length}`);
+  // Displacement should be small (~ -0.08Å in x), not large (-3.92Å)
+  const disp = withPbc.pairs[0].displacement;
+  const mag = Math.sqrt(disp[0]*disp[0] + disp[1]*disp[1] + disp[2]*disp[2]);
+  if (mag > 0.5) fail(`PBC test: displacement magnitude ${mag.toFixed(4)} too large — minimum-image not applied`);
+  if (Math.abs(mag - 0.08) > 1e-4) fail(`PBC test: displacement magnitude ${mag.toFixed(4)}, expected ~0.08`);
+  pass(`PBC: cell-wrap atom match — without lattice unmatched (raw 3.92Å), with lattice matched (min-image 0.08Å)`);
+}
+
+console.log('\nAll v0.17.1.0 + 17.2.2 NN-matching tests passed.');

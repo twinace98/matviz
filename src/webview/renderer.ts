@@ -395,11 +395,20 @@ export class CrystalRenderer {
       p[1] + sec.offset[1],
       p[2] + sec.offset[2],
     ]);
+    // 17.2.2 PBC-aware matching: pass primary lattice when both structures
+    // share the same lattice (object identity → trajectory fixed-cell or
+    // user comparing variants of the same crystal). Cell-mismatched cases
+    // (e.g. relaxed vs unrelaxed lattice constants) fall back to raw
+    // cartesian — minimum-image with mismatched cells is ill-defined.
+    const sameLattice = this.structure.lattice === sec.struct.lattice;
+    const lattice = sameLattice ? this.structure.lattice : undefined;
     const result = matchByNN(
       this.structure.species,
       this.structure.positions,
       sec.struct.species,
       secPos,
+      undefined,           // threshold default
+      lattice,
     );
     this.displacementArrowRenderer.rebuild(result.pairs, this.structure.positions);
     this.requestRender();
