@@ -61,6 +61,47 @@ function pass(msg: string): void { console.log(`✓ ${msg}`); }
   pass(`graphene.xsf: single-frame XSF correctly wraps as 1-frame trajectory`);
 }
 
+// ---- Test 3c: XDATCAR NVE (fixed-cell, v0.17.1.2) ----
+{
+  const p = path.join(ROOT, 'test/fixtures/test-xdatcar-nve');
+  const content = fs.readFileSync(p, 'utf8');
+  const traj = parseStructureFileTraj(content, 'XDATCAR').trajectory;
+  if (traj.frames.length !== 5) fail(`xdatcar-nve: expected 5 frames, got ${traj.frames.length}`);
+  if (traj.latticeMode !== 'fixed') fail(`xdatcar-nve: latticeMode should be 'fixed', got '${traj.latticeMode}'`);
+  // Lattice REF identity (NVE fixed-cell optimization)
+  for (let f = 1; f < 5; f++) {
+    if (traj.frames[f].lattice !== traj.frames[0].lattice) {
+      fail(`xdatcar-nve: NVE lattice ref differs at frame ${f}`);
+    }
+  }
+  // Na drifts along x: cartesian = fractional × lattice[0][0] = f*0.01 × 5.64
+  for (let f = 0; f < 5; f++) {
+    const expected = f * 0.01 * 5.64;
+    const actual = traj.frames[f].positions[0][0];
+    if (Math.abs(actual - expected) > 1e-4) {
+      fail(`xdatcar-nve: frame ${f} Na x = ${actual}, expected ${expected.toFixed(4)}`);
+    }
+  }
+  pass(`xdatcar-nve: 5 frames, fixed lattice ref shared, Na fractional→cartesian drift correct`);
+}
+
+// ---- Test 3d: XDATCAR NPT (variable-cell, v0.17.1.2) ----
+{
+  const p = path.join(ROOT, 'test/fixtures/test-xdatcar-npt');
+  const content = fs.readFileSync(p, 'utf8');
+  const traj = parseStructureFileTraj(content, 'XDATCAR').trajectory;
+  if (traj.frames.length !== 3) fail(`xdatcar-npt: expected 3 frames, got ${traj.frames.length}`);
+  if (traj.latticeMode !== 'per-frame') fail(`xdatcar-npt: should detect variable-cell, got latticeMode='${traj.latticeMode}'`);
+  // Lattice grows: 5.640, 5.700, 5.760
+  const expectedA = [5.640, 5.700, 5.760];
+  for (let f = 0; f < 3; f++) {
+    if (Math.abs(traj.frames[f].lattice[0][0] - expectedA[f]) > 1e-4) {
+      fail(`xdatcar-npt: frame ${f} a=${traj.frames[f].lattice[0][0]}, expected ${expectedA[f]}`);
+    }
+  }
+  pass(`xdatcar-npt: 3 frames, latticeMode=per-frame, lattice a grew 5.640 → 5.700 → 5.760`);
+}
+
 // ---- Test 3b: AXSF multi-frame (v0.17.1.1) ----
 {
   const p = path.join(ROOT, 'test/fixtures/test-trajectory.axsf');

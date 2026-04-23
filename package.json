@@ -41,6 +41,9 @@
             "filenamePattern": "CONTCAR"
           },
           {
+            "filenamePattern": "XDATCAR"
+          },
+          {
             "filenamePattern": "*.xyz"
           },
           {

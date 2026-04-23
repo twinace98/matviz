@@ -2,6 +2,7 @@ import { CrystalStructure, CrystalTrajectory, VolumetricData } from './types';
 import { parseCif } from './cifParser';
 import { parsePoscar } from './poscarParser';
 import { parseXsf, parseXsfTraj } from './xsfParser';
+import { parseXdatcar, parseXdatcarTraj } from './xdatcarParser';
 import { parseChgcar } from './chgcarParser';
 import { parseCube } from './cubeParser';
 import { parseXyz } from './xyzParser';
@@ -64,6 +65,9 @@ export function parseStructureFile(content: string, filename: string): ParseResu
   ) {
     return { structure: parsePoscar(content) };
   }
+  if (lower === 'xdatcar') {
+    return { structure: parseXdatcar(content) };
+  }
   if (lower === 'chgcar' || lower === 'aeccar0' || lower === 'aeccar2' || lower === 'parchg') {
     const result = parseChgcar(content);
     return result;
@@ -102,6 +106,10 @@ export function parseStructureFileTraj(content: string, filename: string): Parse
   // XSF (delegates to parseXsf + wrap), so route both extensions here.
   if (lower.endsWith('.xsf') || lower.endsWith('.axsf')) {
     return parseXsfTraj(content);
+  }
+  // 17.1.2 — XDATCAR (VASP MD) is intrinsically multi-frame.
+  if (lower === 'xdatcar') {
+    return { trajectory: parseXdatcarTraj(content) };
   }
 
   // Fallback: single-frame parser + wrap.
