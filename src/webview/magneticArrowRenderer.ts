@@ -45,9 +45,14 @@ export class MagneticArrowRenderer {
     // rotate +y → moment direction in setFromUnitVectors.
     this.shaftGeo = new THREE.CylinderGeometry(SHAFT_RADIUS, SHAFT_RADIUS, 1, 12, 1, false);
     this.tipGeo = new THREE.ConeGeometry(TIP_RADIUS, TIP_LENGTH, 16);
-    // White base color; per-instance vertexColor (instanceColor) tints.
-    this.shaftMat = new THREE.MeshPhongMaterial({ color: 0xffffff, shininess: 30, vertexColors: true });
-    this.tipMat = new THREE.MeshPhongMaterial({ color: 0xffffff, shininess: 30, vertexColors: true });
+    // White base color; instanceColor automatically multiplies via Three's
+    // USE_INSTANCING_COLOR shader define when InstancedMesh.instanceColor is
+    // non-null. DO NOT set vertexColors:true — that activates the separate
+    // USE_COLOR path which expects a `color` BufferAttribute on the geometry
+    // (cylinder/cone don't have one), and the resulting `vColor *= 0` zeroes
+    // the diffuse → arrows render solid black regardless of instanceColor.
+    this.shaftMat = new THREE.MeshPhongMaterial({ color: 0xffffff, shininess: 30 });
+    this.tipMat = new THREE.MeshPhongMaterial({ color: 0xffffff, shininess: 30 });
   }
 
   setColormap(c: Colormap) { this.colormap = c; }
