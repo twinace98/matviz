@@ -1,7 +1,7 @@
 import { CrystalStructure, CrystalTrajectory, VolumetricData } from './types';
 import { parseCif } from './cifParser';
 import { parsePoscar } from './poscarParser';
-import { parseXsf } from './xsfParser';
+import { parseXsf, parseXsfTraj } from './xsfParser';
 import { parseChgcar } from './chgcarParser';
 import { parseCube } from './cubeParser';
 import { parseXyz } from './xyzParser';
@@ -86,15 +86,25 @@ export function parseStructureFile(content: string, filename: string): ParseResu
 export { CrystalStructure, CrystalTrajectory, VolumetricData } from './types';
 
 /**
- * Trajectory-aware entry point for v0.17 multi-frame formats. Wraps any
- * single-frame parser output into a length-1 trajectory; format-specific
- * multi-frame parsers (AXSF in 17.1.1, XDATCAR in 17.1.2, extended XYZ in
- * 17.1.3) plug in here as they land. Existing call sites that don't need
- * multi-frame can keep using parseStructureFile() — backward compatible.
+ * Trajectory-aware entry point for v0.17 multi-frame formats. Format-specific
+ * multi-frame parsers plug in here as they land:
+ *   - 17.1.1 AXSF (multi-frame XSF) ✅
+ *   - 17.1.2 XDATCAR
+ *   - 17.1.3 extended XYZ
+ * Other formats wrap their single-frame output into a length-1 trajectory.
+ * Existing call sites that don't need multi-frame can keep using
+ * parseStructureFile() — backward compatible.
  */
 export function parseStructureFileTraj(content: string, filename: string): ParseTrajectoryResult {
-  // v0.17.1.0: wrap-only. Multi-frame format dispatch is added incrementally
-  // by 17.1.1+ when each parser gains a Traj entry.
+  const lower = filename.toLowerCase();
+
+  // 17.1.1 — AXSF multi-frame dispatch. parseXsfTraj also handles single-frame
+  // XSF (delegates to parseXsf + wrap), so route both extensions here.
+  if (lower.endsWith('.xsf') || lower.endsWith('.axsf')) {
+    return parseXsfTraj(content);
+  }
+
+  // Fallback: single-frame parser + wrap.
   const single = parseStructureFile(content, filename);
   return {
     trajectory: { frames: [single.structure], latticeMode: 'fixed' },

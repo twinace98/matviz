@@ -49,16 +49,48 @@ function pass(msg: string): void { console.log(`✓ ${msg}`); }
   pass(`silicon.poscar: trajectory.frames[0] matches direct parseStructureFile output`);
 }
 
-// ---- Test 3: AXSF (single-frame XSF currently) wraps as 1-frame too ----
-//      Multi-frame AXSF parsing arrives in 17.1.1.
+// ---- Test 3: single-frame XSF (no ANIMSTEPS) still produces length-1 ----
 {
   const p = path.join(ROOT, 'test/fixtures/graphene.xsf');
   const content = fs.readFileSync(p, 'utf8');
   const traj = parseStructureFileTraj(content, 'graphene.xsf').trajectory;
   if (traj.frames.length !== 1) {
-    fail(`graphene.xsf (no ANIMSTEPS): expected 1 frame, got ${traj.frames.length} (17.1.1 not yet shipped)`);
+    fail(`graphene.xsf (no ANIMSTEPS): expected 1 frame, got ${traj.frames.length}`);
   }
-  pass(`graphene.xsf: 1-frame wrap (multi-frame XSF parsing dormant pending 17.1.1)`);
+  if (traj.latticeMode !== 'fixed') fail(`graphene.xsf: latticeMode should be 'fixed'`);
+  pass(`graphene.xsf: single-frame XSF correctly wraps as 1-frame trajectory`);
+}
+
+// ---- Test 3b: AXSF multi-frame (v0.17.1.1) ----
+{
+  const p = path.join(ROOT, 'test/fixtures/test-trajectory.axsf');
+  const content = fs.readFileSync(p, 'utf8');
+  const traj = parseStructureFileTraj(content, 'test-trajectory.axsf').trajectory;
+  if (traj.frames.length !== 4) fail(`test-trajectory.axsf: expected 4 frames, got ${traj.frames.length}`);
+  if (traj.latticeMode !== 'fixed') fail(`test-trajectory.axsf: shared PRIMVEC → expected latticeMode='fixed', got '${traj.latticeMode}'`);
+  // Atom invariance: same species per frame
+  for (let f = 1; f < traj.frames.length; f++) {
+    if (traj.frames[f].species.length !== traj.frames[0].species.length) {
+      fail(`test-trajectory.axsf: frame ${f} atom count differs from frame 0`);
+    }
+    if (traj.frames[f].species[0] !== 'Na' || traj.frames[f].species[1] !== 'Cl') {
+      fail(`test-trajectory.axsf: frame ${f} species not [Na, Cl]`);
+    }
+  }
+  // Position drift: Na x-coord 0.0, 0.1, 0.2, 0.3 across frames
+  for (let f = 0; f < 4; f++) {
+    const expected = f * 0.1;
+    if (Math.abs(traj.frames[f].positions[0][0] - expected) > 1e-6) {
+      fail(`test-trajectory.axsf: frame ${f} Na x = ${traj.frames[f].positions[0][0]}, expected ${expected}`);
+    }
+  }
+  // Fixed-cell optimization: all frames share lattice REFERENCE
+  for (let f = 1; f < 4; f++) {
+    if (traj.frames[f].lattice !== traj.frames[0].lattice) {
+      fail(`test-trajectory.axsf: latticeMode='fixed' but frame ${f} lattice ref differs from frame 0`);
+    }
+  }
+  pass(`test-trajectory.axsf: 4 frames, latticeMode=fixed (shared ref), Na drifting along x as expected`);
 }
 
 // ---- Test 4: existing parser tests still green (regression check) ----
