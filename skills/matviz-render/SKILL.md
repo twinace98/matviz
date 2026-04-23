@@ -67,6 +67,9 @@ before reporting completion. Silent success is not success.
 | `--polyhedra-centers` | `El1,El2,…` | auto | Comma-separated elements used as polyhedra centers (e.g. `Ti,Fe`). Implies `--polyhedra`. |
 | `--iso` | number | off | Isosurface level (for Cube/CHGCAR/XSF with volumetric data) |
 | `--plane` | `h,k,l` | off | Add lattice plane |
+| `--magmom` | flag | off | Render magnetic-moment arrows on atoms (auto-on if structure has magMom from POSCAR title MAGMOM or CIF `_atom_site_moment_*`) |
+| `--magmom-colormap` | `redblue`\|`viridis` | `redblue` | Arrow color: `redblue` = sign-coded by mz (FM/AFM intuition); `viridis` = sequential by \|m\| |
+| `--magmom-scale` | number | `1.0` | Arrow length (Å per μB) |
 | `--test` | flag | — | Render a test scene (red sphere) for smoke-testing |
 | `-h, --help` | flag | — | Print usage |
 
@@ -116,6 +119,26 @@ node {{MATVIZ_DIR}}/dist/render.js nacl.cif \
 node {{MATVIZ_DIR}}/dist/render.js graphene.xsf \
   -o graphene.png --bg transparent
 ```
+
+**Magnetic moment vectors (NiO antiferromagnet, MAGMOM in POSCAR title)**
+```bash
+node {{MATVIZ_DIR}}/dist/render.js NiO_POSCAR \
+  -o nio_afm.png --magmom --view a
+```
+The arrow length is proportional to |m| (default 1.0 Å per μB; tune with
+`--magmom-scale`). Red/Blue diverging colormap is sign-coded by mz
+(intuitive for collinear FM/AFM); switch to `--magmom-colormap viridis`
+for sequential colormap by |m| (better when comparing magnitudes across
+sites with the same sign).
+
+For VASP POSCARs the parser reads `MAGMOM = ...` from the comment line
+(line 1). Collinear (N tokens for N atoms → mz-only), non-collinear
+(3N tokens → full vector), or compressed `k*v` form (rejected). Adjacent
+INCAR auto-discovery is not yet supported — paste the MAGMOM into the
+POSCAR title or pass the file with that title rewritten.
+
+CIF files use `_atom_site_moment_cartn_*` or `_atom_site_moment_crystalaxis_*`
+loops; the parser handles both.
 
 ## Supported input formats
 

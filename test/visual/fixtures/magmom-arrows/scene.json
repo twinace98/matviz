@@ -1,0 +1,10 @@
+{
+  "input": "../../../fixtures/test-magmom.poscar",
+  "view": "a",
+  "palette": "dark",
+  "width": 800,
+  "height": 600,
+  "bg": "#1e1e1e",
+  "magmom": true,
+  "magmomColormap": "redblue"
+}

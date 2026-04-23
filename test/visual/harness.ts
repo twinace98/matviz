@@ -54,6 +54,9 @@ interface SceneConfig {
   polyhedra?: boolean;
   polyhedraCenters?: string[];
   iso?: number;
+  magmom?: boolean;
+  magmomColormap?: 'redblue' | 'viridis';
+  magmomScale?: number;
 }
 
 interface FixtureResult {
@@ -106,6 +109,9 @@ function buildArgs(cfg: SceneConfig, outPath: string): string[] {
   if (cfg.polyhedra) args.push('--polyhedra');
   if (cfg.polyhedraCenters) args.push('--polyhedra-centers', cfg.polyhedraCenters.join(','));
   if (cfg.iso != null) args.push('--iso', String(cfg.iso));
+  if (cfg.magmom) args.push('--magmom');
+  if (cfg.magmomColormap) args.push('--magmom-colormap', cfg.magmomColormap);
+  if (cfg.magmomScale != null) args.push('--magmom-scale', String(cfg.magmomScale));
   return args;
 }
 

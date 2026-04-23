@@ -46,6 +46,10 @@ interface RenderOptions {
   iso: number | null;
   plane: [number, number, number] | null;
   test: boolean;
+  // 16.3 magnetic moments
+  magmom: boolean;
+  magmomColormap: 'redblue' | 'viridis';
+  magmomScale: number;
 }
 
 function parseArgs(argv: string[]): RenderOptions {
@@ -70,6 +74,9 @@ function parseArgs(argv: string[]): RenderOptions {
     iso: null,
     plane: null,
     test: false,
+    magmom: false,
+    magmomColormap: 'redblue',
+    magmomScale: 1.0,
   };
 
   const args = argv.slice(2);
@@ -100,6 +107,18 @@ function parseArgs(argv: string[]): RenderOptions {
         break;
       case '--iso': opts.iso = parseFloat(args[++i]); break;
       case '--plane': opts.plane = args[++i].split(',').map(Number) as [number, number, number]; break;
+      case '--magmom': opts.magmom = true; break;
+      case '--magmom-colormap': {
+        const v = args[++i];
+        if (v !== 'redblue' && v !== 'viridis') {
+          console.error(`Invalid --magmom-colormap: ${v} (use 'redblue' or 'viridis')`);
+          process.exit(1);
+        }
+        opts.magmomColormap = v;
+        opts.magmom = true;  // implies show
+        break;
+      }
+      case '--magmom-scale': opts.magmomScale = parseFloat(args[++i]); opts.magmom = true; break;
       case '-h': case '--help': printHelp(); process.exit(0);
       default:
         if (!a.startsWith('-')) positional.push(a);
@@ -143,6 +162,10 @@ Options:
                          Implies --polyhedra. Overrides auto-detection.
   --iso <level>          Isosurface level (volumetric data only)
   --plane <h,k,l>        Add lattice plane
+  --magmom               Show magnetic-moment arrows (auto-on if structure carries
+                         magMom from POSCAR title MAGMOM or CIF _atom_site_moment_*)
+  --magmom-colormap <c>  redblue (default; sign-coded by mz)|viridis (sequential by |m|)
+  --magmom-scale <s>     Arrow length scale in Å per μB (default: 1.0)
   --test                 Render test scene (red sphere)
   -h, --help             Show this help`);
 }
@@ -224,6 +247,9 @@ const OPTS = ${JSON.stringify({
     polyhedraCenters: opts.polyhedraCenters,
     iso: opts.iso,
     plane: opts.plane,
+    magmom: opts.magmom,
+    magmomColormap: opts.magmomColormap,
+    magmomScale: opts.magmomScale,
   })};
 
 // --- Element data (generated from src/shared/elements-data.ts) ---
@@ -284,6 +310,11 @@ const dl2 = new THREE.DirectionalLight(0xffffff, 0.3); dl2.position.set(-5, -5, 
 const lat = structure.lattice;
 const [na, nb, nc] = OPTS.supercell;
 const species = [], positions = [];
+// 16.3 magnetic moments: track per-expanded-atom moment vector parallel to
+// species/positions so the arrow renderer below can iterate uniformly. null
+// when structure has no magMom field or --magmom is off.
+const haveMagMom = OPTS.magmom && Array.isArray(structure.magMom);
+const expandedMagMom = haveMagMom ? [] : null;
 
 for (let ia = 0; ia < na; ia++) {
   for (let ib = 0; ib < nb; ib++) {
@@ -300,6 +331,7 @@ for (let ia = 0; ia < na; ia++) {
           structure.positions[j][1]+off[1],
           structure.positions[j][2]+off[2],
         ]);
+        if (expandedMagMom) expandedMagMom.push(structure.magMom[j]);
       }
     }
   }
@@ -343,6 +375,7 @@ if (OPTS.boundary && structure.lattice) {
             ];
             species.push(structure.species[j]);
             positions.push(cp);
+            if (expandedMagMom) expandedMagMom.push(structure.magMom[j]);
           }
         }
       }
@@ -474,6 +507,96 @@ for (const [el, indices] of elGroups) {
   }
   mesh.instanceMatrix.needsUpdate = true;
   scene.add(mesh);
+}
+
+// --- 16.3 Magnetic moment arrows (matches src/webview/magneticArrowRenderer.ts) ---
+if (expandedMagMom) {
+  const SHAFT_RADIUS = 0.06, TIP_RADIUS = 0.18, TIP_LENGTH = 0.35, ZERO_THRESHOLD = 1e-4;
+  const SCALE = OPTS.magmomScale;
+  // Filter zero moments
+  const live = [];
+  let maxMag = 0;
+  for (let i = 0; i < positions.length; i++) {
+    const m = expandedMagMom[i];
+    if (!m) continue;
+    const len = Math.sqrt(m[0]*m[0]+m[1]*m[1]+m[2]*m[2]);
+    if (len < ZERO_THRESHOLD) continue;
+    if (len > maxMag) maxMag = len;
+    live.push({ pos: positions[i], moment: m, mag: len });
+  }
+  if (live.length > 0) {
+    if (maxMag < ZERO_THRESHOLD) maxMag = 1;
+    // Colormap: same formulas as src/webview/magneticArrowRenderer.ts
+    function interpStops(t, stops) {
+      if (t <= 0) return stops[0];
+      if (t >= 1) return stops[stops.length - 1];
+      const seg = t * (stops.length - 1);
+      const i = Math.floor(seg), f = seg - i;
+      const a = stops[i], b = stops[i+1];
+      return [a[0]+f*(b[0]-a[0]), a[1]+f*(b[1]-a[1]), a[2]+f*(b[2]-a[2])];
+    }
+    const VIRIDIS = [
+      [0.267, 0.005, 0.329],
+      [0.231, 0.322, 0.545],
+      [0.129, 0.569, 0.549],
+      [0.992, 0.906, 0.144],
+    ];
+    function colormap(moment, mag) {
+      const t = mag / maxMag;
+      if (OPTS.magmomColormap === 'viridis') return interpStops(t, VIRIDIS);
+      // redblue diverging by sign(mz)
+      if (moment[2] >= 0) return [1.0, 1.0 - t, 1.0 - t];
+      return [1.0 - t, 1.0 - t, 1.0];
+    }
+    const shaftGeo = new THREE.CylinderGeometry(SHAFT_RADIUS, SHAFT_RADIUS, 1, 12, 1, false);
+    const tipGeo = new THREE.ConeGeometry(TIP_RADIUS, TIP_LENGTH, 16);
+    // base = white so instanceColor multiplies through (no vertexColors:true —
+    // see fix(v0.16.3) commit 0c23a2c for why that flag would zero the diffuse)
+    const shaftMat = new THREE.MeshPhongMaterial({ color: 0xffffff, shininess: 30 });
+    const tipMat = new THREE.MeshPhongMaterial({ color: 0xffffff, shininess: 30 });
+    const shaftMesh = new THREE.InstancedMesh(shaftGeo, shaftMat, live.length);
+    const tipMesh = new THREE.InstancedMesh(tipGeo, tipMat, live.length);
+    shaftMesh.frustumCulled = true;
+    tipMesh.frustumCulled = true;
+
+    const yAxis = new THREE.Vector3(0, 1, 0);
+    const dirV = new THREE.Vector3();
+    const quat = new THREE.Quaternion();
+    const sm = new THREE.Matrix4();
+    const tm = new THREE.Matrix4();
+    const tmpColor = new THREE.Color();
+    for (let i = 0; i < live.length; i++) {
+      const inst = live[i];
+      const len = inst.mag * SCALE;
+      dirV.set(inst.moment[0], inst.moment[1], inst.moment[2]).normalize();
+      quat.setFromUnitVectors(yAxis, dirV);
+      // Shaft: midpoint, scale Y to len
+      sm.compose(
+        new THREE.Vector3(inst.pos[0]+0.5*len*dirV.x, inst.pos[1]+0.5*len*dirV.y, inst.pos[2]+0.5*len*dirV.z),
+        quat,
+        new THREE.Vector3(1, len, 1)
+      );
+      shaftMesh.setMatrixAt(i, sm);
+      // Tip: end of shaft, default scale
+      tm.compose(
+        new THREE.Vector3(inst.pos[0]+len*dirV.x, inst.pos[1]+len*dirV.y, inst.pos[2]+len*dirV.z),
+        quat,
+        new THREE.Vector3(1, 1, 1)
+      );
+      tipMesh.setMatrixAt(i, tm);
+      const c = colormap(inst.moment, inst.mag);
+      tmpColor.setRGB(c[0], c[1], c[2]);
+      shaftMesh.setColorAt(i, tmpColor);
+      tipMesh.setColorAt(i, tmpColor);
+    }
+    shaftMesh.instanceMatrix.needsUpdate = true;
+    tipMesh.instanceMatrix.needsUpdate = true;
+    if (shaftMesh.instanceColor) shaftMesh.instanceColor.needsUpdate = true;
+    if (tipMesh.instanceColor) tipMesh.instanceColor.needsUpdate = true;
+    shaftMesh.computeBoundingSphere();
+    tipMesh.computeBoundingSphere();
+    scene.add(shaftMesh, tipMesh);
+  }
 }
 
 // --- Detect bonds (always — needed for polyhedra even when bonds hidden) ---

@@ -313,6 +313,9 @@ Common options:
 | `--polyhedra-centers Ti,Fe` | Comma-separated list of polyhedra-center elements (implies `--polyhedra`) |
 | `--iso <level>` | Isosurface level for volumetric files (both +level and −level are rendered) |
 | `--plane h,k,l` | Add a lattice plane by Miller indices |
+| `--magmom` | Render magnetic-moment arrows on atoms (auto-on if POSCAR title has `MAGMOM = ...` or CIF carries `_atom_site_moment_*`) |
+| `--magmom-colormap <m>` | Arrow color: `redblue` (default; sign-coded by mz) or `viridis` (sequential by \|m\|) |
+| `--magmom-scale <s>` | Arrow length, Å per μB (default `1.0`) |
 | `--no-bonds` / `--no-boundary` / `--no-cell` | Disable bonds / boundary atoms / cell wireframe |
 
 Run `node dist/render.js --help` for the full list.
