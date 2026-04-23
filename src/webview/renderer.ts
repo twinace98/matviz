@@ -13,7 +13,50 @@ import { SphereImpostorMesh, createImpostorMaterial } from './sphereImpostor';
 import { EllipsoidRenderer, type EllipsoidInstance, type ProbabilityContour } from './ellipsoidRenderer';
 import { MagneticArrowRenderer, type MagneticArrowInstance, type Colormap as MagColormap } from './magneticArrowRenderer';
 import { DisplacementArrowRenderer } from './displacementArrowRenderer';
-import { matchByNN } from './nnMatching';
+import { matchByNN, type DisplacementPair } from './nnMatching';
+
+/**
+ * v0.17.2.3 — Comparison statistics shown in the side-panel summary.
+ * RMSD + magnitude percentiles over matched pairs only; unmatched
+ * counted separately.
+ */
+export interface ComparisonStats {
+  rmsd: number;              // Å, sqrt(mean(d²)) over matched pairs
+  maxDisplacement: number;   // Å
+  meanDisplacement: number;  // Å
+  p95Displacement: number;   // Å
+  matchedCount: number;
+  unmatchedCount: number;
+}
+
+function computeComparisonStats(pairs: DisplacementPair[], unmatchedCount: number): ComparisonStats {
+  if (pairs.length === 0) {
+    return { rmsd: 0, maxDisplacement: 0, meanDisplacement: 0, p95Displacement: 0, matchedCount: 0, unmatchedCount };
+  }
+  const mags: number[] = new Array(pairs.length);
+  let sum2 = 0;
+  let max = 0;
+  let sum = 0;
+  for (let i = 0; i < pairs.length; i++) {
+    const d = pairs[i].displacement;
+    const m2 = d[0]*d[0] + d[1]*d[1] + d[2]*d[2];
+    const m = Math.sqrt(m2);
+    mags[i] = m;
+    sum2 += m2;
+    sum += m;
+    if (m > max) max = m;
+  }
+  mags.sort((a, b) => a - b);
+  const p95 = mags[Math.min(mags.length - 1, Math.floor(0.95 * mags.length))];
+  return {
+    rmsd: Math.sqrt(sum2 / pairs.length),
+    maxDisplacement: max,
+    meanDisplacement: sum / pairs.length,
+    p95Displacement: p95,
+    matchedCount: pairs.length,
+    unmatchedCount,
+  };
+}
 import { computeWulffGeometry, planesFromMillerIndices } from './wulff';
 import { AtomPickingRenderer } from './picking';
 import type { VolumetricData } from '../parsers/types';
@@ -125,6 +168,9 @@ export class CrystalRenderer {
   private displacementArrowRenderer = new DisplacementArrowRenderer();
   private comparisonActive = false;
   private comparisonSecondaryPhase: { struct: CrystalStructure; offset: [number, number, number]; opacity: number } | null = null;
+  // 17.2.3 RMSD/displacement summary stats — recomputed in
+  // recomputeComparison(). UI reads via getComparisonStats().
+  private lastComparisonStats: ComparisonStats | null = null;
   // 17.1.5 perf knob: when true, every setFrame re-runs detectBonds
   // (O(N) spatial hash). Default false — first frame's bonds are inherited
   // by all subsequent frames, accepting that bonds may be slightly off
@@ -378,11 +424,16 @@ export class CrystalRenderer {
   clearComparison(): void {
     this.comparisonActive = false;
     this.comparisonSecondaryPhase = null;
+    this.lastComparisonStats = null;
     this.displacementArrowRenderer.clear();
     this.requestRender();
   }
 
   isComparisonActive(): boolean { return this.comparisonActive; }
+
+  /** 17.2.3: latest comparison statistics, recomputed each setFrame +
+   *  compareToPhase. Null when comparison is inactive. */
+  getComparisonStats(): ComparisonStats | null { return this.lastComparisonStats; }
 
   private recomputeComparison(): void {
     if (!this.comparisonActive || !this.comparisonSecondaryPhase || !this.structure) return;
@@ -411,6 +462,8 @@ export class CrystalRenderer {
       lattice,
     );
     this.displacementArrowRenderer.rebuild(result.pairs, this.structure.positions);
+    // 17.2.3 stats: RMSD + magnitude statistics over matched pairs.
+    this.lastComparisonStats = computeComparisonStats(result.pairs, result.unmatched.length);
     this.requestRender();
   }
 

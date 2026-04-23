@@ -193,6 +193,9 @@ function setTrajFrame(idx: number) {
   if (trajFrameLabel) {
     trajFrameLabel.textContent = `/ ${renderer.getFrameCount()}`;
   }
+  // 17.2.3: refresh comparison stats panel since renderer.setFrame already
+  // re-ran recomputeComparison() (when active) and updated lastStats.
+  updateComparisonStatsUI();
 }
 
 function trajPlayLoop(t: number) {
@@ -313,6 +316,30 @@ function updatePhasesSectionVisibility() {
   rebuildPhasesList();
   const ct = document.getElementById('compare-toggle') as HTMLInputElement | null;
   if (ct) ct.checked = renderer.isComparisonActive();
+  updateComparisonStatsUI();
+}
+
+// 17.2.3 RMSD/displacement summary panel.
+function updateComparisonStatsUI() {
+  const div = document.getElementById('comparison-stats');
+  if (!div) return;
+  const stats = renderer.getComparisonStats();
+  if (!stats || !renderer.isComparisonActive()) {
+    div.classList.add('hidden');
+    div.innerHTML = '';
+    return;
+  }
+  div.classList.remove('hidden');
+  // Render compact stat block. Numbers in Å with 4 sig fig (RMSD/max/mean
+  // typically 0.001–10 Å range).
+  const fmt = (x: number) => x < 0.001 ? '<0.001' : x.toPrecision(3);
+  div.innerHTML = `
+    <div class="stat-row"><span class="stat-key">RMSD</span><span>${fmt(stats.rmsd)} Å</span></div>
+    <div class="stat-row"><span class="stat-key">max</span><span>${fmt(stats.maxDisplacement)} Å</span></div>
+    <div class="stat-row"><span class="stat-key">mean</span><span>${fmt(stats.meanDisplacement)} Å</span></div>
+    <div class="stat-row"><span class="stat-key">p95</span><span>${fmt(stats.p95Displacement)} Å</span></div>
+    <div class="stat-row"><span class="stat-key">matched / unmatched</span><span>${stats.matchedCount} / ${stats.unmatchedCount}</span></div>
+  `;
 }
 const addPhaseBtn = document.getElementById('add-phase-btn');
 if (addPhaseBtn) {
@@ -331,6 +358,8 @@ if (compareToggle) {
     } else {
       renderer.clearComparison();
     }
+    // 17.2.3: refresh stats panel after toggle change
+    updateComparisonStatsUI();
   });
 }
 

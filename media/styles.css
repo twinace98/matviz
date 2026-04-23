@@ -615,3 +615,24 @@ body.layout-offset #canvas {
   font-weight: bold;
 }
 .full-width { width: 100%; }
+
+/* ===== v0.17.2.3 Comparison stats panel ===== */
+.comparison-stats {
+  margin-top: 6px;
+  padding: 6px 8px;
+  background: var(--vscode-editorWidget-background, rgba(60, 60, 60, 0.4));
+  border-left: 2px solid #4dabf7;
+  border-radius: 3px;
+  font-size: 11px;
+  color: var(--vscode-foreground, #ddd);
+  font-family: var(--vscode-editor-font-family, monospace);
+  line-height: 1.55;
+}
+.comparison-stats .stat-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.comparison-stats .stat-key {
+  color: var(--vscode-descriptionForeground, #aaa);
+}

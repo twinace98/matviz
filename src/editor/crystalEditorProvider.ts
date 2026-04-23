@@ -354,6 +354,7 @@ export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvide
       <div class="toggle-group" id="comparison-row">
         <label class="toggle" title="Display NN displacement arrows from primary atoms to first secondary phase atoms (Viridis colormap)"><input type="checkbox" id="compare-toggle"><span>Compare to first phase (displacement arrows)</span></label>
       </div>
+      <div id="comparison-stats" class="comparison-stats hidden"></div>
     </div>
     <div class="panel-section hidden" id="magnetic-moments-section">
       <div class="panel-label" title="Magnetic moment vectors from VASP MAGMOM (POSCAR title line) or CIF _atom_site_moment_*">Magnetic moments</div>
