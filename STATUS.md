@@ -1,7 +1,7 @@
 # Project Status
 
-- **Version**: v0.17.3 (bundled release of v0.16 + v0.17 + v0.17.1 + v0.17.2 + v0.17.3) shipped 2026-04-23.
-- **Phase**: v0.17 family closed. v0.18 plan pair drafted but not yet kicked off.
+- **Version**: v0.17.4 (CLI parity patch — `--phase` + `--compare-to-phase`) shipped 2026-04-26. Closes the CLI/webview feature-parity gap for multi-phase overlay and comparison. Earlier bundled release v0.17.3 (v0.16 + v0.17 + v0.17.1 + v0.17.2 + v0.17.3) shipped 2026-04-23.
+- **Phase**: v0.18.0 (Floating UI / V2 redesign) **kickoff approved 2026-04-26**, on hold while v0.17.4 was inserted. Plan + impl spec already drafted in `plans/v0.18.0_floating-ui*.md` (uncommitted). Feature 18.1 (groundwork — unified SVG icons + step-angle/zoom stepper) code complete and quality-gate-clean, pre-commit (modifications in `media/styles.css`, `src/editor/crystalEditorProvider.ts`, `src/webview/main.ts`). v0.18 reroutes the v0.18 slot from "Editor integration" → "Floating UI"; the editor-integration backlog shifts to v0.19.
 - **People**: Seungwoo Shin (twinace98)
 - **Repo**: https://github.com/twinace98/matviz.git (also pushes to `sogang-qmp` remote)
 
@@ -10,8 +10,10 @@
 1. Read in order: `CLAUDE.md` (architecture + workflow) → `Plan.md` (roadmap) → this file → active `plans/` pair if any.
 2. Auto-memory loads from `~/.claude/projects/-home-swshin-matviz/memory/`.
 3. **Next action** (in priority order):
-   1. Review `plans/v0.18.0_floating-ui.md` + `_impl.md` — drafted but not committed/started. Decide: kickoff v0.18 (Editor integration: split-pane, settings namespace, undo/redo, marketplace) or pivot to v0.17.4 (multi-phase + comparison CLI exposure) first.
-   2. Address remaining v0.17.x deferred items if they block v0.18 (none currently — all v0.17.x deferred are nice-to-have, see `working/v0.17.*.md` "Known limitations / deferred").
+   1. Commit v0.18.0 kickoff (Plan.md + STATUS.md + plans/v0.18.0_floating-ui*.md) as `chore(v0.18.0): kick off plan + impl spec for Floating UI (V2 redesign)`.
+   2. Commit Feature 18.1 (already pre-staged in working tree: ICON object, step-angle/zoom stepper, palette innerHTML swap in `media/styles.css` + `src/editor/crystalEditorProvider.ts` + `src/webview/main.ts`) as `feat(v0.18.0.1): unified SVG icons + step-angle/zoom stepper (V2 groundwork)`.
+   3. Begin Feature 18.2 (V2 design tokens in `media/styles.css`) per `plans/v0.18.0_floating-ui_impl.md`.
+   4. v0.17.x backlog (CLI polish — see Plan.md "v0.17.x backlog") is to-do but does not block v0.18.
 
 ## Completed
 
@@ -29,6 +31,7 @@
 - **v0.17.1** (2026-04-23): Comparison mode — NN atom matching algorithm + unit tests (17.3.0); displacement arrow renderer (Viridis colormap) + comparison UI + frame-aware auto-recompute (17.3.1).
 - **v0.17.2** (2026-04-23): UX + correctness patch — unified Phases+Comparison side-panel UI + playback UX polish (Space, speed slider, frame input, once-only loop) + vscode toast (17.2.1); PBC-aware NN matching (minimum-image distance) (17.2.2); RMSD/displacement summary panel (17.2.3).
 - **v0.17.3** (2026-04-23): Trajectory CLI — `--frame N` for single-frame extraction with content-based XDATCAR/AXSF auto-detect (17.3.1); `--all-frames` for PNG sequence rendering with browser reuse (17.3.2). Enables matviz-render skill MD-trajectory animation workflow via ffmpeg.
+- **v0.17.4** (2026-04-26): Phase + comparison CLI — `--phase <file>` repeatable transparent overlay (17.4.1); `--compare-to-phase` NN displacement arrows + Viridis colormap + single-line `[comparison] RMSD: …` stdout summary, PBC-aware on identical lattices (17.4.2). Closes CLI/webview parity for multi-phase + comparison features.
 
 ## Hotfixes
 
@@ -37,8 +40,8 @@
 
 ## Pending (from Plan.md)
 
-- [ ] **v0.18** — Editor integration (split-pane, settings namespace, undo/redo, marketplace publish). Plan pair drafted (`plans/v0.18.0_floating-ui.md`), not yet committed/kicked off.
-- Possible **v0.17.4** — Multi-phase + comparison CLI exposure (multi-input syntax design needed). Candidate before v0.18 kickoff.
+- [ ] **v0.18** — Floating UI / V2 redesign (8 sub-features 18.1–18.8). Plan pair drafted (`plans/v0.18.0_floating-ui*.md`), not yet committed. Kickoff approved 2026-04-26; resumed after v0.17.4 release.
+- [ ] **v0.17.x backlog** (CLI polish): per-phase opacity/offset, trajectory phase frame selection, per-phase tint, `--compare-trajectory`, `--stats-out` JSON, per-pair displacement listing. To-do but non-blocking.
 
 ## Decisions locked in
 
@@ -52,7 +55,10 @@
 - **Bond recompute default off in trajectory playback** (locked 2026-04-23 v0.17.1.5): inherit frame-0 bonds across frames; toggle for opt-in per-frame recomputation; auto-disable above 5k atoms.
 - **PBC-aware NN matching when same lattice REF** (locked 2026-04-23 v0.17.2.2): minimum-image distance via fractional round; raw cartesian when cells differ.
 - **Bundled v0.16+v0.17+v0.17.1+v0.17.2+v0.17.3 release** (locked 2026-04-23): single jump 0.15.2 → 0.17.3 with one tag (option A).
+- **v0.17.4 inserted ahead of v0.18** (locked 2026-04-26): user requested CLI parity patch land before resuming Floating UI work. v0.17.4 → standalone release (not bundled into v0.18) so the CLI parity feature is consumable independently.
+- **First-`--phase`-only for `--compare-to-phase`** (locked 2026-04-26 v0.17.4.2): with multiple `--phase` files, only the first participates in comparison. Others remain visualization-only overlays.
+- **`--compare-to-phase` rejects `--all-frames`** (locked 2026-04-26 v0.17.4.2): per-frame trajectory comparison semantics ambiguous; deferred to a future `--compare-trajectory` flag.
 
 ## Open questions
 
-- Whether v0.17.4 (multi-phase + comparison CLI) lands before v0.18 (editor integration). Plan pair for v0.18 already drafted but the v0.17.4 candidate would close the CLI/webview parity gap for the comparison feature.
+- (none currently — v0.17.4 vs v0.18 ordering question resolved in favor of v0.17.4-first; v0.18 work resumes from pre-staged Feature 18.1 in working tree.)

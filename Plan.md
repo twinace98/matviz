@@ -14,7 +14,7 @@ VESTA-inspired crystal structure viewer as a VSCode extension. Goal: provide com
 - Webview CSP is nonce-only for scripts AND styles (`'unsafe-inline'` dropped in v0.13.1). Any new inline style must land as a utility class in `media/styles.css` instead.
 - Element data single source: `src/shared/elements-data.ts` (80 elements). Extension host and webview both import from here. `scripts/render.ts` deliberately inlines a **subset** because the HTML page must be self-contained for Puppeteer — keep colors/radii in sync manually when elements-data.ts changes (documented in CLAUDE.md).
 - Bond detection is O(N) via spatial hashing, hard-skipped for >5000 atoms. UI surfaces this with a "Bond detection skipped / Compute anyway" inline hint (v0.14.0).
-- Custom editor is `CustomReadonlyEditorProvider<CrystalDocument>` — writing back to the file requires moving to the editable variant, which affects v0.18.1 (split-pane) design.
+- Custom editor is `CustomReadonlyEditorProvider<CrystalDocument>` — writing back to the file requires moving to the editable variant, which affects v0.19's planned split-pane work.
 - Impostor rendering tone does not exactly match the Phong-material path despite `RECIPROCAL_PI` + `linearToSRGB` alignment (shipped v0.15.0 known issue). Targeted for v0.15.1.
 - **Isosurface supercell requires periodic data**. `tileVolumetricPBC` + single-MC expects the volumetric grid to be truly periodic (DFT CHGCAR/XSF always are). Non-periodic cube files (like molecules in vacuum) will show visible seams between tiled cells. Also `marchingCubes(..., pbc=true)` is required for the iso to reach the exact cell boundary — only `buildIsosurface` should pass `pbc=true`; other callers (if any appear) keep the default `pbc=false`.
 - **Polyhedra centers auto-detect is chemistry-heuristic, not a universal truth**. The first-coord-shell + 85%-dominant-ligand rule works for typical ionic/covalent crystals (NaCl, TiO2, perovskites, spinels, ZnO) but will exclude: (1) clusters with mixed-element ligand shells like ABO3's bridging O, (2) pure metallic fcc/bcc (homoatomic coordination). Users can always override via the side-panel checkboxes.
@@ -197,22 +197,100 @@ Two fix commits already landed on `main` after v0.15.0; version bump pending use
 
 ---
 
-## v0.18 — Editor integration
+## v0.17.4 — Phase + comparison CLI exposure ✅ shipped 2026-04-26
+
+**Goal**: Close the CLI/webview parity gap for v0.17.2's multi-phase
+overlay and comparison features. After v0.17.4, every webview
+visualization mode is reachable from `node dist/render.js`.
+
+| # | Feature | Success criterion |
+|---|---------|-------------------|
+| 17.4.1 | `--phase <file>` repeatable CLI flag (multi-phase overlay) | Primary structure renders opaque; each `--phase` adds transparent (50%) atoms via per-element InstancedMesh. Visual fixture cli-phase-overlay regression-stable |
+| 17.4.2 | `--compare-to-phase` CLI flag (NN displacement arrows + RMSD stdout summary) | Single-line `[comparison] RMSD: X.XXX Å (matched N, unmatched M, max …, mean …, p95 …)` to stdout; same-species NN matching; PBC-aware on identical lattices; pre-flight rejects missing-`--phase` and `--all-frames` combos |
+
+**Scope decisions**:
+- **Inline HTML port over webview-module import** (locked 2026-04-26): the Puppeteer page must be self-contained, so webview's `rebuildSecondaryPhases` and comparison code clones into the inline HTML string with explicit "carry-over from v0.17.2" markers. Drift risk accepted in exchange for self-contained renderer page.
+- **First-`--phase`-only comparison** (locked 2026-04-26): with multiple `--phase` files, only the first participates in `--compare-to-phase`. Rest remain visualization-only overlays. Multi-phase pair-wise comparison is deferred (see backlog).
+- **`--compare-to-phase` rejects `--all-frames`** (locked 2026-04-26): per-frame comparison semantics (which frame matches phase? phase trajectory? all-vs-one?) are ambiguous; fail-fast with `process.exit(1)` and defer to a future `--compare-trajectory` flag.
+
+**Exit criterion**: 11/11 visual fixtures ΔRGB=0 with cli-phase-overlay + cli-comparison added; SKILL.md/README.md sync; type-check + build clean. ✓
+
+---
+
+## v0.17.x backlog — CLI polish (deferred from v0.17.4)
+
+Candidates for a future v0.17.5 patch (or absorbed into v0.18+ scope as
+opportunities arise). All optional; none blocks v0.18.
+
+| Item | Origin | Notes |
+|------|--------|-------|
+| Per-phase opacity / offset CLI syntax (`--phase file.cif:opacity=0.3:offset=2,0,0`) | 17.4.1 | Defaults (0.5 opacity, (0,0,0) offset) cover the common "relaxed vs unrelaxed in same cell" workflow. Syntax design needed for compactness vs readability. |
+| Trajectory phase frame selection (`--phase file.xdatcar:frame=N`) | 17.4.1 | Currently first-frame-only on multi-frame phase files. |
+| Per-phase tint color override | 17.4.1 | Webview uses element default colors; CLI inherits. CLI-only colorization API to be designed. |
+| `--compare-trajectory` (per-frame comparison against a fixed phase) | 17.4.2 | Reserved name. Opens questions: stdout format (per-frame line vs CSV), output naming, whether phase can also be a trajectory. |
+| `--stats-out file.json` (machine-readable comparison stats) | 17.4.2 | Stdout `[comparison]` line is grep-friendly but lossy for downstream pipelines. JSON or CSV mode. |
+| Per-pair displacement listing (atom-index table) | 17.4.2 | RMSD/max alone hide outliers; per-atom table aids DFT-vs-DFT debugging. Likely combined with `--stats-out`. |
+
+---
+
+## v0.18 — Floating UI (V2 redesign)
+
+**Goal**: Adopt the V2 Floating Panels design language. The 3D viewport
+becomes the full canvas; chrome recedes into translucent glass panels that
+float above it. Replaces the edge-attached opaque chrome wholesale.
+
+| # | Feature | Success criterion |
+|---|---------|-------------------|
+| 18.1 | Unified SVG icons + step-angle/zoom stepper (groundwork) | All toolbar Unicode/emoji glyphs replaced with 16×16 SVGs; native browser spinners gone from step inputs |
+| 18.2 | V2 design tokens | Glass alpha layers, surface/line/shadow vars, V2 type scale defined in `media/styles.css` |
+| 18.3 | Mode rail glass restyle | Rail uses `--v2-glass-1` + `backdrop-filter` |
+| 18.4 | Floating centered toolbar | Toolbar is centered glass panel, no longer edge-attached |
+| 18.5 | Floating side panel | Rounded glass, scrollable inner section, panel head removed |
+| 18.6 | Style chips + iOS switches + V2 supercell stepper + info pill + gizmo relocation | Combined panel-content commit (Gate-B sits between this feature and 18.7) |
+| 18.7 | Help overlay redesign + 1–4 digit style shortcuts | 4-column grid card; `1`/`2`/`3`/`4` swap display style |
+| 18.8 | Measure HUD overlay | Top-right HUD shows in measure mode with hero distance value, atom-pair card, Δ rows |
+
+**Reroute history**: v0.18 was previously pencilled as "Editor integration"
+(split-pane, settings namespace, undo/redo, marketplace publish). Reshuffled
+2026-04-26 — that backlog moves to **v0.19**. The placeholder hadn't started
+so no work is lost.
+
+**Out of scope (deferred / dropped)**:
+- **In-webview tabs bar** — V2 mockup includes one, but matviz uses VSCode
+  tabs (one webview per file). Not implementing unless multi-file workflow
+  is added later.
+- **Empty-state drop zone** — `openCustomDocument` throws on parse failure,
+  so the webview never renders empty.
+- **Layout offset/overlay toggle** — V2 is overlay-only; toggle removed.
+
+**Decision gates**:
+- Gate-A — Kickoff approval (this plan + impl spec). ✓ approved 2026-04-26.
+- Gate-B — Visual review after Feature 18.6 (full chrome+panel content
+  visible on a real fixture).
+- Gate-C — Pre-release sweep (all 4 fixture families: CIF, POSCAR,
+  CHGCAR+iso, AXSF trajectory).
+
+**Exit criterion**: All features green-lit at Gate-C; `STATUS.md` updated;
+plans pair archived.
+
+---
+
+## v0.19 — Editor integration (deferred from old v0.18)
 
 **Goal**: Deep VSCode integration for power users.
 
 | # | Feature | Success criterion |
 |---|---------|-------------------|
-| 18.1 | Split-pane: text editor + 3D view | Edit CIF text, 3D view updates live (debounced reparse on save) |
-| 18.2 | VSCode settings namespace (`matviz.*`) | All defaults configurable; settings UI works |
-| 18.3 | Undo/redo for property changes | Ctrl+Z restores previous colors/radii/cutoffs |
-| 18.4 | Marketplace publishing | Extension installable from VSCode marketplace |
+| 19.1 | Split-pane: text editor + 3D view | Edit CIF text, 3D view updates live (debounced reparse on save) |
+| 19.2 | VSCode settings namespace (`matviz.*`) | All defaults configurable; settings UI works |
+| 19.3 | Undo/redo for property changes | Ctrl+Z restores previous colors/radii/cutoffs |
+| 19.4 | Marketplace publishing | Extension installable from VSCode marketplace |
 
-**Architectural dependency — 18.1 blocker**: Current editor is `CustomReadonlyEditorProvider<CrystalDocument>`. Split-pane live edit requires migration to `CustomTextEditorProvider` (so text buffer and webview share a `TextDocument`) OR a companion text editor that posts change events into the read-only viewer. Decision gate at 18.1 kickoff — migration is ~2 days work and affects document lifecycle, dirty state, save interaction.
+**Architectural dependency — 19.1 blocker**: Current editor is `CustomReadonlyEditorProvider<CrystalDocument>`. Split-pane live edit requires migration to `CustomTextEditorProvider` (so text buffer and webview share a `TextDocument`) OR a companion text editor that posts change events into the read-only viewer. Decision gate at 19.1 kickoff — migration is ~2 days work and affects document lifecycle, dirty state, save interaction.
 
 **Scope decisions**:
-- **18.2 settings schema**: `matviz.defaults.{style,palette,showBonds,showBoundary,bondCutoff,isoLevel,cameraMode}`. Per-workspace overrides. Migration from current `localStorage` persistence schema v1 → settings-backed: localStorage wins for session, settings provide defaults.
-- **18.3 undo stack**: scoped to property-panel changes (colors, radii, cutoffs, visibility). Does NOT include camera or selection. Separate stack from text-editor undo.
+- **19.2 settings schema**: `matviz.defaults.{style,palette,showBonds,showBoundary,bondCutoff,isoLevel,cameraMode}`. Per-workspace overrides. Migration from current `localStorage` persistence schema v1 → settings-backed: localStorage wins for session, settings provide defaults.
+- **19.3 undo stack**: scoped to property-panel changes (colors, radii, cutoffs, visibility). Does NOT include camera or selection. Separate stack from text-editor undo.
 
 **Exit criterion**: Published on marketplace with all documented features working; `matviz.*` settings documented in README.
 
@@ -221,7 +299,8 @@ Two fix commits already landed on `main` after v0.15.0; version bump pending use
 ## Critical decision gates
 
 1. **After 15.4 (WebGPU evaluation)** — ❌ Rejected 2026-04-18. No prototype built; decision based on cost/benefit review (GLSL-to-TSL port cost, already-optimized WebGL2 path, CLI renderer constraint). Revisit: when 50k+ structures actually bottleneck WebGL2 OR compute-shader redesign enters scope (v0.17+).
-2. **Before 18.4 (marketplace publishing)** — pass criterion: all test fixtures render correctly, no console errors, README accurate. On fail: fix before publishing.
+2. **v0.18 Gate-B** — Visual review after Feature 18.6. Pass criterion: user opens a non-trivial fixture in VSCode and confirms floating chrome reads correctly.
+3. **Before 19.4 (marketplace publishing)** — pass criterion: all test fixtures render correctly, no console errors, README accurate. On fail: fix before publishing.
 
 ---
 
@@ -231,7 +310,8 @@ Two fix commits already landed on `main` after v0.15.0; version bump pending use
 - **v0.15**: Performance benchmarks with `renderer.info` and `performance.now()` on 10k/50k atom structures. ⚠ Formal 50k measurement not yet captured — see test infrastructure.
 - **v0.16**: Visual comparison with VESTA screenshots for reference structures.
 - **v0.17**: Memory profiling during 1000-frame playback; leak detection via heap snapshots.
-- **v0.18**: VSCode marketplace validation checklist; end-to-end install test on clean machine.
+- **v0.18**: Manual fixture spot-check per feature commit + 4-format Gate-C sweep (CIF / POSCAR / CHGCAR+iso / AXSF). No headless visual regression; floating chrome is too dependent on VSCode theme + backdrop-filter behavior to mock reliably.
+- **v0.19**: VSCode marketplace validation checklist; end-to-end install test on clean machine.
 
 ---
 
