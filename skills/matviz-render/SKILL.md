@@ -75,6 +75,7 @@ before reporting completion. Silent success is not success.
 | `--ellipsoid-contour` | `0.5`\|`0.9` | `0.5` | Probability contour level. Implies `--ellipsoids`. |
 | `--wulff` | `"h,k,l,γ; …"` | off | Render Wulff polytope from semicolon-separated (h,k,l,γ) tuples. γ = relative surface energy per face. |
 | `--frame` | `N` (0-indexed) | `0` | Trajectory file (XDATCAR / AXSF / extended XYZ): render the Nth frame. Out-of-range clamps with warn. Ignored for single-frame files. |
+| `--all-frames` | flag | off | Render every trajectory frame as a PNG sequence: `<output>_NNNN.png` (1-indexed, 4-digit zero-padded; auto-expands beyond 9999 frames). Conflicts with `--frame` (all wins + warn). |
 | `--test` | flag | — | Render a test scene (red sphere) for smoke-testing |
 | `-h, --help` | flag | — | Print usage |
 
@@ -177,6 +178,25 @@ for XDATCAR, `ANIMSTEPS` for AXSF) so file extension or non-standard
 filenames work. Frame index is 0-indexed; out-of-range clamps to nearest
 valid frame with a warning. To render the entire trajectory as an
 animation sequence see `--all-frames` below.
+
+**MD trajectory animation sequence → ffmpeg gif/mp4**
+```bash
+# Render every frame to PNG sequence
+node {{MATVIZ_DIR}}/dist/render.js XDATCAR \
+  -o md.png --all-frames --view std
+
+# Combine to gif (ffmpeg installed separately)
+ffmpeg -framerate 30 -i md_%04d.png \
+  -vf "scale=640:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse" \
+  md.gif
+
+# Or to mp4 (smaller filesize, sharper)
+ffmpeg -framerate 30 -i md_%04d.png \
+  -c:v libx264 -pix_fmt yuv420p md.mp4
+```
+The Puppeteer browser is reused across frames within a single
+`--all-frames` invocation, so a 100-frame trajectory is roughly
+2 + 100·1 sec instead of 100·2 sec.
 
 **Wulff construction (Au cuboctahedron)**
 ```bash

@@ -1282,8 +1282,37 @@ async function render(opts: RenderOptions) {
 
     let html: string;
 
+    const threePath = path.resolve(__dirname, '..', 'node_modules', 'three', 'build', 'three.module.js');
+    const helpersPath = path.resolve(__dirname, 'render-helpers.js');
+
+    // Helper: write tmpHtml + goto + extract canvas + save PNG. Reused for
+    // both single-frame and --all-frames paths so the browser/page is reused
+    // across iterations (saves ~2s per frame vs per-invocation launch).
+    const renderHtmlToPng = async (rawHtml: string, outputPath: string) => {
+      const fixed = rawHtml
+        .replace(/__THREE_PATH__/g, `file://${threePath}`)
+        .replace(/__HELPERS_PATH__/g, `file://${helpersPath}`);
+      fs.writeFileSync(tmpHtml, fixed);
+      await page.goto(`file://${tmpHtml}`, { waitUntil: 'networkidle0', timeout: 30000 });
+      await page.waitForFunction('window.__renderDone === true', { timeout: 30000 });
+      await new Promise(r => setTimeout(r, 200));
+      const dataUrl = await page.evaluate(() => {
+        const c = document.getElementById('c') as HTMLCanvasElement;
+        return c ? c.toDataURL('image/png') : null;
+      });
+      if (dataUrl) {
+        const base64 = dataUrl.replace(/^data:image\/png;base64,/, '');
+        fs.writeFileSync(outputPath, Buffer.from(base64, 'base64'));
+        console.log(`Saved: ${outputPath}`);
+        return true;
+      }
+      console.error('Error: could not extract canvas data.');
+      return false;
+    };
+
     if (opts.test) {
-      html = generateTestHTML(opts);
+      const ok = await renderHtmlToPng(generateTestHTML(opts), opts.output);
+      if (!ok) process.exitCode = 1;
     } else {
       if (!opts.input) {
         console.error('Error: no input file specified.');
@@ -1293,20 +1322,9 @@ async function render(opts: RenderOptions) {
 
       const content = fs.readFileSync(opts.input, 'utf-8');
       const filename = path.basename(opts.input);
-      // v0.17.3.1: trajectory-aware dispatch. Single-frame files wrap to
-      // length-1 (parseStructureFileTraj internal), so behavior is identical
-      // to previous parseStructureFile path when --frame is unset/0 and
-      // input is single-frame.
+      // v0.17.3.1: trajectory-aware dispatch.
       const trajResult = parseStructureFileTraj(content, filename);
       const traj = trajResult.trajectory;
-      let frameIdx = opts.frame;
-      if (traj.frames.length > 1) {
-        if (frameIdx < 0 || frameIdx >= traj.frames.length) {
-          console.warn(`--frame ${frameIdx} out of range [0..${traj.frames.length - 1}], clamping`);
-          frameIdx = Math.max(0, Math.min(frameIdx, traj.frames.length - 1));
-        }
-      }
-      const structureJSON = JSON.stringify(traj.frames[Math.max(0, Math.min(frameIdx, traj.frames.length - 1))]);
       const volumetricJSON = trajResult.volumetric ? JSON.stringify({
         origin: trajResult.volumetric.origin,
         lattice: trajResult.volumetric.lattice,
@@ -1314,31 +1332,43 @@ async function render(opts: RenderOptions) {
         data: Array.from(trajResult.volumetric.data),
       }) : null;
 
-      html = generateStructureHTML(opts, structureJSON, volumetricJSON);
-    }
-
-    const threePath = path.resolve(__dirname, '..', 'node_modules', 'three', 'build', 'three.module.js');
-    const helpersPath = path.resolve(__dirname, 'render-helpers.js');
-    html = html.replace(/__THREE_PATH__/g, `file://${threePath}`);
-    html = html.replace(/__HELPERS_PATH__/g, `file://${helpersPath}`);
-    fs.writeFileSync(tmpHtml, html);
-    await page.goto(`file://${tmpHtml}`, { waitUntil: 'networkidle0', timeout: 30000 });
-
-    await page.waitForFunction('window.__renderDone === true', { timeout: 30000 });
-    await new Promise(r => setTimeout(r, 200));
-
-    const dataUrl = await page.evaluate(() => {
-      const c = document.getElementById('c') as HTMLCanvasElement;
-      return c ? c.toDataURL('image/png') : null;
-    });
-
-    if (dataUrl) {
-      const base64 = dataUrl.replace(/^data:image\/png;base64,/, '');
-      fs.writeFileSync(opts.output, Buffer.from(base64, 'base64'));
-      console.log(`Saved: ${opts.output}`);
-    } else {
-      console.error('Error: could not extract canvas data.');
-      process.exitCode = 1;
+      // 17.3.2 --all-frames: render every frame as PNG sequence.
+      if (opts.allFrames) {
+        if (opts.frame !== 0) {
+          console.warn(`--frame ${opts.frame} ignored: --all-frames takes precedence`);
+        }
+        const N = traj.frames.length;
+        if (N === 1) {
+          // Non-trajectory or single-frame: still emit one indexed file
+          // for naming consistency in scripts that always expect _NNNN.
+          console.warn(`--all-frames on single-frame input — emitting one file with _0001 suffix`);
+        }
+        // Width: 4 digits up to 9999, expand to 5 beyond.
+        const padWidth = N > 9999 ? 5 : 4;
+        let allOk = true;
+        for (let i = 0; i < N; i++) {
+          const padded = String(i + 1).padStart(padWidth, '0');
+          const outPath = opts.output.replace(/\.png$/i, `_${padded}.png`);
+          const structureJSON = JSON.stringify(traj.frames[i]);
+          const html = generateStructureHTML(opts, structureJSON, volumetricJSON);
+          const ok = await renderHtmlToPng(html, outPath);
+          if (!ok) { allOk = false; break; }
+        }
+        if (!allOk) process.exitCode = 1;
+      } else {
+        // Single-frame extraction (existing 17.3.1 path).
+        let frameIdx = opts.frame;
+        if (traj.frames.length > 1) {
+          if (frameIdx < 0 || frameIdx >= traj.frames.length) {
+            console.warn(`--frame ${frameIdx} out of range [0..${traj.frames.length - 1}], clamping`);
+            frameIdx = Math.max(0, Math.min(frameIdx, traj.frames.length - 1));
+          }
+        }
+        const structureJSON = JSON.stringify(traj.frames[Math.max(0, Math.min(frameIdx, traj.frames.length - 1))]);
+        const html = generateStructureHTML(opts, structureJSON, volumetricJSON);
+        const ok = await renderHtmlToPng(html, opts.output);
+        if (!ok) process.exitCode = 1;
+      }
     }
   } finally {
     try { fs.unlinkSync(tmpHtml); } catch {}
