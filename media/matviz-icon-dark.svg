@@ -1,0 +1,25 @@
+<svg width="16" height="16" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+  <!-- 5-atom asymmetric ball-and-stick cluster (matviz brand mark, dark
+       variant). Lifted verbatim from media/brand-wordmark.html's
+       #matviz-cluster-dark symbol so the title-bar icon matches the
+       wordmark glyph. Two-tone bonds (dark casing + light core) read as
+       split-color cylinders — the same impostor convention used in the
+       3D viewer itself. -->
+  <g stroke="#1a1a1a" stroke-width="4" stroke-linecap="round">
+    <line x1="24" y1="26" x2="10" y2="15"/>
+    <line x1="24" y1="26" x2="36" y2="9"/>
+    <line x1="24" y1="26" x2="41" y2="29"/>
+    <line x1="24" y1="26" x2="17" y2="40"/>
+  </g>
+  <g stroke="#d6d6d6" stroke-width="1.8" stroke-linecap="round">
+    <line x1="24" y1="26" x2="10" y2="15"/>
+    <line x1="24" y1="26" x2="36" y2="9"/>
+    <line x1="24" y1="26" x2="41" y2="29"/>
+    <line x1="24" y1="26" x2="17" y2="40"/>
+  </g>
+  <circle cx="10" cy="15" r="5"   fill="#6b85ff" stroke="#1a1a1a" stroke-width=".8"/>
+  <circle cx="36" cy="9"  r="3.8" fill="#ffd233" stroke="#1a1a1a" stroke-width=".8"/>
+  <circle cx="41" cy="29" r="4.4" fill="#ff4d4d" stroke="#1a1a1a" stroke-width=".8"/>
+  <circle cx="17" cy="40" r="4"   fill="#ff9d3a" stroke="#1a1a1a" stroke-width=".8"/>
+  <circle cx="24" cy="26" r="6"   fill="#007fd4" stroke="#0a3a5c" stroke-width="1"/>
+</svg>

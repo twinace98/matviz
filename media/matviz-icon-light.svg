@@ -1,0 +1,19 @@
+<svg width="16" height="16" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+  <!-- 5-atom asymmetric ball-and-stick cluster (matviz brand mark, light
+       variant). Lifted verbatim from media/brand-wordmark.html's
+       #matviz-cluster-light symbol. On light backgrounds the two-tone
+       bond would disappear so the design uses a single dark stroke and
+       a 1px outline on every atom; saturated hues are slightly
+       darkened so they still read on white. -->
+  <g stroke="#2a2a2a" stroke-width="2.2" stroke-linecap="round">
+    <line x1="24" y1="26" x2="10" y2="15"/>
+    <line x1="24" y1="26" x2="36" y2="9"/>
+    <line x1="24" y1="26" x2="41" y2="29"/>
+    <line x1="24" y1="26" x2="17" y2="40"/>
+  </g>
+  <circle cx="10" cy="15" r="5"   fill="#4d6ae8" stroke="#1a1a1a" stroke-width="1"/>
+  <circle cx="36" cy="9"  r="3.8" fill="#e8b520" stroke="#1a1a1a" stroke-width="1"/>
+  <circle cx="41" cy="29" r="4.4" fill="#e03a3a" stroke="#1a1a1a" stroke-width="1"/>
+  <circle cx="17" cy="40" r="4"   fill="#e67a1a" stroke="#1a1a1a" stroke-width="1"/>
+  <circle cx="24" cy="26" r="6"   fill="#006bb0" stroke="#002c4a" stroke-width="1.2"/>
+</svg>

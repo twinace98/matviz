@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  html,body{margin:0;padding:0;background:#1e1e1e;font-family:var(--font-family);color:#ccc;font-size:14px}
+  .card{padding:24px;display:flex;flex-direction:column;gap:16px}
+  .wm{display:flex;align-items:center;gap:16px}
+  .glyph{width:60px;height:60px;border-radius:8px;background:#1e1e1e;border:1px solid #444;display:grid;place-items:center}
+  .glyph svg{display:block}
+  .wm .name{font-size:26px;font-weight:700;letter-spacing:-.5px;color:#ccc;line-height:1}
+  .wm .name span{color:#007fd4}
+  .sub{font-size:12px;color:#888;text-transform:uppercase;letter-spacing:1px;margin-top:4px}
+
+  .scales{display:flex;align-items:center;gap:22px;padding:8px 0}
+  .glyph.sm{width:30px;height:30px;border-radius:5px}
+  .glyph.lg{width:92px;height:92px;border-radius:12px}
+  .glyph.light{background:#f7f7f7;border-color:#c8c8c8}
+  .glyph.paper{background:#ffffff;border-color:#d8d8d8}
+  .tag{font-size:10px;color:#666;text-align:center;font-family:inherit;margin-top:4px;text-transform:uppercase;letter-spacing:.5px}
+  .scaleItem{display:flex;flex-direction:column;align-items:center}
+
+  .cap{font-size:11px;color:#666;line-height:1.5}
+</style></head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <!--
+      5-atom asymmetric cluster. Saturated, distinct hues only.
+      Excluded: gray, white, near-black — anything close to bond strokes.
+      Central: VSCode blue · peripherals: N-blue, O-red, S-yellow, P-orange.
+      Coord system 0-48.
+    -->
+    <symbol id="matviz-cluster-dark" viewBox="0 0 48 48">
+      <g stroke="#1a1a1a" stroke-width="4" stroke-linecap="round">
+        <line x1="24" y1="26" x2="10" y2="15"/>
+        <line x1="24" y1="26" x2="36" y2="9"/>
+        <line x1="24" y1="26" x2="41" y2="29"/>
+        <line x1="24" y1="26" x2="17" y2="40"/>
+      </g>
+      <g stroke="#d6d6d6" stroke-width="1.8" stroke-linecap="round">
+        <line x1="24" y1="26" x2="10" y2="15"/>
+        <line x1="24" y1="26" x2="36" y2="9"/>
+        <line x1="24" y1="26" x2="41" y2="29"/>
+        <line x1="24" y1="26" x2="17" y2="40"/>
+      </g>
+      <circle cx="10" cy="15" r="5"   fill="#6b85ff" stroke="#1a1a1a" stroke-width=".8"/>   <!-- N -->
+      <circle cx="36" cy="9"  r="3.8" fill="#ffd233" stroke="#1a1a1a" stroke-width=".8"/>   <!-- S -->
+      <circle cx="41" cy="29" r="4.4" fill="#ff4d4d" stroke="#1a1a1a" stroke-width=".8"/>   <!-- O -->
+      <circle cx="17" cy="40" r="4"   fill="#ff9d3a" stroke="#1a1a1a" stroke-width=".8"/>   <!-- P -->
+      <circle cx="24" cy="26" r="6"   fill="#007fd4" stroke="#0a3a5c" stroke-width="1"/>    <!-- central · brand -->
+    </symbol>
+
+    <symbol id="matviz-cluster-light" viewBox="0 0 48 48">
+      <g stroke="#2a2a2a" stroke-width="2.2" stroke-linecap="round">
+        <line x1="24" y1="26" x2="10" y2="15"/>
+        <line x1="24" y1="26" x2="36" y2="9"/>
+        <line x1="24" y1="26" x2="41" y2="29"/>
+        <line x1="24" y1="26" x2="17" y2="40"/>
+      </g>
+      <circle cx="10" cy="15" r="5"   fill="#4d6ae8" stroke="#1a1a1a" stroke-width="1"/>
+      <circle cx="36" cy="9"  r="3.8" fill="#e8b520" stroke="#1a1a1a" stroke-width="1"/>
+      <circle cx="41" cy="29" r="4.4" fill="#e03a3a" stroke="#1a1a1a" stroke-width="1"/>
+      <circle cx="17" cy="40" r="4"   fill="#e67a1a" stroke="#1a1a1a" stroke-width="1"/>
+      <circle cx="24" cy="26" r="6"   fill="#006bb0" stroke="#002c4a" stroke-width="1.2"/>
+    </symbol>
+  </defs>
+</svg>
+
+<div class="card">
+
+  <div class="wm">
+    <div class="glyph">
+      <svg width="44" height="44"><use href="#matviz-cluster-dark"/></svg>
+    </div>
+    <div>
+      <div class="name">Mat<span>Viz</span></div>
+      <div class="sub">Crystal Structure Viewer</div>
+    </div>
+  </div>
+
+  <div class="scales">
+    <div class="scaleItem">
+      <div class="glyph sm"><svg width="24" height="24"><use href="#matviz-cluster-dark"/></svg></div>
+      <div class="tag">24 px</div>
+    </div>
+    <div class="scaleItem">
+      <div class="glyph lg"><svg width="68" height="68"><use href="#matviz-cluster-dark"/></svg></div>
+      <div class="tag">large</div>
+    </div>
+    <div class="scaleItem">
+      <div class="glyph light"><svg width="44" height="44"><use href="#matviz-cluster-light"/></svg></div>
+      <div class="tag">on light</div>
+    </div>
+    <div class="scaleItem">
+      <div class="glyph paper" style="width:92px;height:92px;border-radius:12px"><svg width="68" height="68"><use href="#matviz-cluster-light"/></svg></div>
+      <div class="tag">paper / large</div>
+    </div>
+  </div>
+
+  <div class="cap">Synthesized wordmark — no official logo ships. Five-atom asymmetric cluster: central brand-blue atom with four saturated peripherals (N blue, S yellow, O red, P orange). Gray was excluded so no atom collides with the bond stroke color. Dark build uses a two-tone bond (dark casing + light core); light build uses a single dark stroke and a 1 px outline on every atom so pale species remain legible on white. Internal use only until team sign-off.</div>
+</div>
+</body></html>

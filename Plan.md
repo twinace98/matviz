@@ -275,7 +275,7 @@ plans pair archived.
 
 ---
 
-## v0.19 — Editor integration (deferred from old v0.18)
+## v0.19 — Editor integration
 
 **Goal**: Deep VSCode integration for power users.
 
@@ -296,11 +296,44 @@ plans pair archived.
 
 ---
 
+## v0.20 — Symmetry detection (spglib WASM)
+
+**Goal**: Replace the current `'P1'` fallback (which `getStructureInfo()` reports for any non-CIF structure regardless of actual symmetry) with a real spglib-driven detection so the info pill shows the correct space group for every loaded structure — POSCAR, XSF, XYZ, PDB, Cube, CHGCAR, QE output, FHI-aims geometry.
+
+**Why this lives in its own version**: introduces a new toolchain dependency (emscripten or wasm-bindgen), a CSP relaxation, and ~100–300 KB of bundle weight. None of these are appropriate to fold into v0.18 polish or v0.19 editor-integration scope. Owning a discrete version keeps the dependency + size + CSP impact reviewable.
+
+| # | Feature | Success criterion |
+|---|---------|-------------------|
+| 20.1 | Build/integrate spglib WASM | `dist/spglib.wasm` + glue JS shipped; loads on webview boot in <50 ms |
+| 20.2 | `detectSymmetry(structure)` post-parser pass | `parseStructureFile` populates `CrystalStructure.spaceGroup` from spglib for every parser; CIF parser still defers to its own `_space_group_name_*` if present |
+| 20.3 | Info pill correct space group on non-CIF | Open `silicon.poscar` → pill shows `Fd-3m`; open `nacl.cif` → still `Fm-3m` (CIF wins on conflict). `'P1'` fallback in `renderer.getStructureInfo()` removed |
+| 20.4 | CLI renderer parity | `scripts/render.ts` loads same WASM via Node FS API; `--info` flag (or stdout summary) reports detected space group |
+| 20.5 | CSP relaxation documented | `crystalEditorProvider.ts` CSP gains `'wasm-unsafe-eval'` in `script-src`; CLAUDE.md "Critical caveats" updated to note this |
+
+**Build path decision (gate at 20.1 kickoff)**:
+- Option A — emscripten direct C build (mature; most npm packages take this route)
+- Option B — `moyo` Rust port via wasm-bindgen (smaller bundle, modern toolchain, but newer/less battle-tested)
+- Option C — adopt an existing npm package (e.g. `spglib-wasm`, `@spglib/spglib-js` if quality holds up). Prefer this if the package is actively maintained and ≤200 KB.
+
+**Bonus surfaces unlocked by spglib (out of v0.20 scope but enabled)**:
+- Wyckoff position labels in atom-select pill ("Si #5 (8a)")
+- Symmetry-refined cell + standard-orientation auto-orient
+- Asymmetric-unit extraction for export (CIF write minimal asymm. set instead of all expanded atoms)
+- Point-group / Laue-class display
+- Conventional vs. primitive cell toggle in toolbar
+
+**Tolerance defaults**: spglib position-tol 1e-3 Å fractional (matches matviz's existing CIF symmetry-expansion tolerance — `crystalEditorProvider.ts` line 39 in v0.13.1 hardening pass), angle-tol 1°. Exposed as `matviz.symmetry.tolerance` setting in v0.19 (or hard-coded for v0.20.0 if v0.19 not yet shipped).
+
+**Exit criterion**: All test fixtures (`test/fixtures/*`) report a valid (non-`P1` where applicable) space group in the info pill, AND the same value via the CLI renderer's stdout summary, AND a CSP audit confirms only `'wasm-unsafe-eval'` was added (not `'unsafe-eval'`).
+
+---
+
 ## Critical decision gates
 
 1. **After 15.4 (WebGPU evaluation)** — ❌ Rejected 2026-04-18. No prototype built; decision based on cost/benefit review (GLSL-to-TSL port cost, already-optimized WebGL2 path, CLI renderer constraint). Revisit: when 50k+ structures actually bottleneck WebGL2 OR compute-shader redesign enters scope (v0.17+).
 2. **v0.18 Gate-B** — Visual review after Feature 18.6. Pass criterion: user opens a non-trivial fixture in VSCode and confirms floating chrome reads correctly.
 3. **Before 19.4 (marketplace publishing)** — pass criterion: all test fixtures render correctly, no console errors, README accurate. On fail: fix before publishing.
+4. **v0.20.1 build path selection** — emscripten C, Rust `moyo` + wasm-bindgen, or existing npm package. Pass criterion: chosen path produces ≤300 KB of additional bundle weight AND the integration test (each fixture's space group matches a manually-verified spglib reference) passes. On fail: fall back to next option in the A→B→C order.
 
 ---
 

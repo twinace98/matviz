@@ -755,6 +755,25 @@ export class CrystalRenderer {
 
   getAxisIndicatorSize(): number { return this.axisIndicator.size; }
 
+  /** Indicator's CSS-pixel bounding rect (top-down origin) — used by the
+   *  pointer hit-test in main.ts for right-click drag. */
+  getAxisIndicatorRect(): { x: number; y: number; w: number; h: number } {
+    const c = this.canvas;
+    return this.axisIndicator.getRect(c.clientWidth, c.clientHeight);
+  }
+
+  setAxisIndicatorOffset(dx: number, dy: number) {
+    this.axisIndicator.setOffset(dx, dy);
+    this.requestRender();
+  }
+
+  getAxisIndicatorOffset(): { dx: number; dy: number } { return this.axisIndicator.offset; }
+
+  resetAxisIndicatorOffset() {
+    this.axisIndicator.resetOffset();
+    this.requestRender();
+  }
+
   private get axisInsetSize(): number { return this.axisIndicator.size; }
   private set axisInsetSize(px: number) { this.axisIndicator.setSize(px); }
 

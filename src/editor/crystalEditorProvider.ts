@@ -371,8 +371,10 @@ export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvide
     </div>
     <div class="panel-section hidden" id="iso-section">
       <div class="panel-label" title="Isosurface contour level for the loaded volumetric data">Iso-level</div>
-      <input type="range" id="iso-slider" class="iso-slider" min="0" max="1" step="0.001" value="0" title="Drag to change isosurface level (absolute value; negative lobe drawn automatically)">
-      <input type="number" id="iso-input" class="sc-input full-width" step="any" value="0" title="Isosurface level (numeric entry)">
+      <div class="iso-row">
+        <input type="range" id="iso-slider" class="iso-slider" min="0" max="1" step="0.001" value="0" title="Drag to change isosurface level (absolute value; negative lobe drawn automatically)">
+        <input type="number" id="iso-input" class="iso-num" step="any" value="0" title="Isosurface level (numeric entry)">
+      </div>
     </div>
     <div class="panel-section hidden" id="ellipsoids-section">
       <div class="panel-label" title="Anisotropic-displacement ellipsoids parsed from CIF _atom_site_aniso_*">Thermal ellipsoids</div>
@@ -454,10 +456,14 @@ export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvide
     </div><!-- /.panel-scroll -->
   </div>
 
-  <!-- Bottom-left info pill (V2 canonical formula readout — always visible) -->
+  <!-- Bottom-left info pill (V2 canonical formula readout — always visible).
+       When an atom is clicked the picked-atom info appears as an additional
+       segment after the meta, so the pill becomes the single integrated
+       readout for both structure-level and atom-level info. -->
   <div id="info-pill" class="hidden">
     <span id="pill-formula"></span>
     <span id="pill-meta"></span>
+    <span id="pill-selected" class="hidden"></span>
   </div>
 
   <!-- Measure HUD (V2 — top-right; visible only in measure mode) -->

@@ -109,7 +109,10 @@
       {
         "command": "matviz.openInViewer",
         "title": "Open in MatViz",
-        "icon": "$(graph)"
+        "icon": {
+          "light": "media/matviz-icon-light.svg",
+          "dark": "media/matviz-icon-dark.svg"
+        }
       },
       {
         "command": "matviz.resetCamera",

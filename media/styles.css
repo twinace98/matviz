@@ -116,22 +116,30 @@ html, body {
   margin: 3px 2px;
 }
 
-/* ===== Top toolbar (V2 floating glass — centered, responsive wrap) =====
-   Container-queried responsive: at narrow canvas widths the toolbar wraps
-   to multiple rows so all icons stay visible (rather than scrolling
-   horizontally and hiding the right end). Buttons / separators / labels
-   shrink before wrapping. */
+/* ===== Top toolbar (V2 floating glass — two-mode responsive) =====
+   Default mode: content-sized centered pill (V2 mockup intent — toolbar
+   hugs its content and stays centered above the canvas).
+   Narrow mode (when content can't fit on a single row): switch to
+   anchored-edges + `flex-wrap: wrap` so all icons stay visible across
+   multiple rows.
+
+   The mode-switch thresholds are tuned to the natural single-row width
+   (~785px of content + padding). Above the threshold, the centered pill
+   fits cleanly; below, anchored-edges with wrap is the only layout that
+   reliably keeps every icon visible without overflowing the glass card. */
 #top-bar {
   position: absolute;
   top: 12px;
-  left: 50%;
+  /* Centered in the canvas-clear region (rail → viewport-right edge), not
+     in the viewport — `(rail + 100vw) / 2` is the midpoint between the
+     rail's right edge and the viewport's right edge. transform: -50%
+     centers the toolbar's own midline at that point. */
+  left: calc((var(--mode-bar-w) + 100vw) / 2);
   transform: translateX(-50%);
-  display: inline-flex;
-  flex-wrap: wrap;
+  display: flex;
+  flex-wrap: nowrap;
   align-items: center;
-  justify-content: center;
   gap: 0;
-  row-gap: 3px;
   padding: 4px 6px;
   background: var(--v2-glass-2);
   -webkit-backdrop-filter: blur(var(--v2-blur));
@@ -144,33 +152,67 @@ html, body {
   color: var(--v2-fg-1);
   z-index: 12;
   max-width: calc(100vw - var(--mode-bar-w) - 32px);
-  container-type: inline-size;
-  container-name: topbar;
 }
-/* When the side panel is open, shrink toolbar's max-width so it doesn't
-   overlap. (The toolbar is centered relative to the canvas, not relative to
-   the visible work area, so we narrow rather than re-position.) */
+/* NOTE: `container-type: inline-size` was tried here but combined with
+   absolute-positioned + width:auto (shrink-to-fit) it caused Chromium's
+   webview to compute the toolbar width as 0, making it invisible. All
+   responsive breakpoints below use viewport-based @media queries instead,
+   which don't interact with the toolbar's auto-width calculation. */
+/* Panel open: center between the panel's right edge (rail + 8 inset +
+   panel-w + 12 gap) and viewport-right. */
 body.panel-open #top-bar {
-  max-width: calc(100vw - var(--mode-bar-w) - var(--side-panel-w) - 56px);
+  left: calc((var(--mode-bar-w) + var(--side-panel-w) + 20px + 100vw) / 2);
+  max-width: calc(100vw - var(--mode-bar-w) - var(--side-panel-w) - 40px);
 }
 
-/* Tier 1 — toolbar narrower than 720px: hide label text (the .num-wrap
-   stepper stays so step values can still be edited), tighten button +
-   separator widths so a few more icons fit per row before wrap kicks in. */
-@container topbar (max-width: 720px) {
+/* Switch to anchored-edges + wrap mode + tighter buttons when the canvas
+   can't fit the natural single-row width (panel closed → viewport < 870px;
+   panel open → viewport < 1140px since the panel eats ~248+24px). */
+@media (max-width: 870px) {
+  #top-bar {
+    left: calc(var(--mode-bar-w) + 12px);
+    right: 16px;
+    transform: none;
+    flex-wrap: wrap;
+    justify-content: center;
+    row-gap: 3px;
+    max-width: none;
+  }
   .bar-btn { min-width: 26px; height: 26px; padding: 0 4px; }
   .bar-sep { margin: 0 4px; height: 16px; }
   .bar-label > :not(.num-wrap) { display: none; }
   .bar-label { margin-left: 2px; gap: 0; }
   .axis-btn { min-width: 22px; }
 }
+@media (max-width: 1140px) {
+  body.panel-open #top-bar {
+    left: calc(var(--mode-bar-w) + var(--side-panel-w) + 20px);
+    right: 16px;
+    transform: none;
+    flex-wrap: wrap;
+    justify-content: center;
+    row-gap: 3px;
+    max-width: none;
+  }
+  body.panel-open .bar-btn { min-width: 26px; height: 26px; padding: 0 4px; }
+  body.panel-open .bar-sep { margin: 0 4px; height: 16px; }
+  body.panel-open .bar-label > :not(.num-wrap) { display: none; }
+  body.panel-open .bar-label { margin-left: 2px; gap: 0; }
+  body.panel-open .axis-btn { min-width: 22px; }
+}
 
-/* Tier 2 — toolbar narrower than 480px: drop further to allow wrap onto
-   2 rows at typical narrow editor widths while keeping hit-targets sane. */
-@container topbar (max-width: 480px) {
+/* Second-tier shrink for very narrow viewports — buttons squeeze down one
+   more notch so multi-row wrap doesn't run away. Same threshold logic
+   shifted by the panel offset. */
+@media (max-width: 540px) {
   .bar-btn { min-width: 24px; height: 24px; padding: 0 3px; font-size: 13px; }
   .bar-sep { margin: 0 3px; }
   #top-bar { padding: 3px 4px; }
+}
+@media (max-width: 810px) {
+  body.panel-open .bar-btn { min-width: 24px; height: 24px; padding: 0 3px; font-size: 13px; }
+  body.panel-open .bar-sep { margin: 0 3px; }
+  body.panel-open #top-bar { padding: 3px 4px; }
 }
 
 .bar-group {
@@ -337,12 +379,16 @@ body.panel-open #top-bar {
    button's flex centering controls layout (avoids inline-baseline drift). */
 .bar-btn svg, .mode-btn svg { display: block; }
 
-/* ===== Left side panel (V2 floating glass) ===== */
+/* ===== Left side panel (V2 floating glass) =====
+   Inset on all four sides — 8px from rail / top / bottom — so the panel
+   reads as a uniformly floating card with rounded corners on every edge.
+   The 8px gap to the rail also visually separates the rail's chrome from
+   the panel's chrome. */
 #side-panel {
   position: absolute;
-  top: 60px;
-  left: calc(var(--mode-bar-w) + 12px);
-  bottom: 16px;
+  top: 8px;
+  left: calc(var(--mode-bar-w) + 8px);
+  bottom: 8px;
   width: var(--side-panel-w);
   background: var(--v2-glass-2);
   -webkit-backdrop-filter: blur(var(--v2-blur));
@@ -418,7 +464,8 @@ body.panel-open #top-bar {
   max-width: 70vw;
 }
 body.panel-open #info-pill {
-  left: calc(var(--mode-bar-w) + 12px + var(--side-panel-w) + 12px);
+  /* Pill clears at rail + 8 panel inset + panel + 12 gap = +20. */
+  left: calc(var(--mode-bar-w) + var(--side-panel-w) + 20px);
 }
 #pill-formula {
   font-size: var(--v2-t-title);
@@ -438,6 +485,26 @@ body.panel-open #info-pill {
 #pill-meta b {
   color: var(--v2-fg-2);
   font-weight: 500;
+}
+
+/* Selected-atom segment — appears inside the info pill when an atom is
+   clicked. Uses the same micro-size + tabular-nums typography as the meta
+   so the pill reads as one continuous strip; a leading separator line
+   (left border) visually divides structure-meta from atom-info. */
+#pill-selected {
+  font-size: var(--v2-t-micro);
+  color: var(--v2-fg-2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-left: 12px;
+  border-left: 1px solid var(--v2-line-strong);
+  max-width: 60vw;
+}
+#pill-selected b {
+  color: #fff;
+  font-weight: 600;
 }
 
 .panel-section {
@@ -577,21 +644,22 @@ body.panel-open #info-pill {
 }
 
 /* ===== V2 supercell stepper — `−  N  +` per axis, no upper bound =====
-   3 fixed-width cells, centered. Cells are intentionally narrow so the
-   supercell row reads as a tight triplet rather than stretching the full
-   panel width. */
+   3 fluid cells that share the available panel width. `flex: 1 1 0`
+   distributes space equally between the three axes; the default
+   `min-width: auto` (= min-content) prevents collapsing below the size
+   needed for the [- N +] controls. The cells therefore widen when the
+   panel is resized wider and tighten when narrower. */
 .sc-row {
   display: flex;
   gap: 6px;
-  justify-content: flex-start;
 }
 .sc {
   display: flex;
   flex-direction: column;
   gap: 4px;
   align-items: center;
-  width: 64px;
-  flex: 0 0 64px;
+  flex: 1 1 0;
+  min-width: 0;
 }
 .sc-l {
   font-size: var(--v2-t-caps);
@@ -751,10 +819,90 @@ input.prop-vis[type="checkbox"] {
 }
 .num-wrap.bond-num .num-steps { width: 14px; }
 
+/* ===== V2-styled range sliders + iso-level number entry =====
+   .iso-slider (shared between iso-level and axis-size) gets a custom thin
+   track on the V2 surface palette and a focus-blue circular thumb so it
+   reads as part of the same chrome vocabulary as the toolbar/panel. The
+   iso-level row pairs the slider with a compact numeric input. */
+.iso-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
 .iso-slider {
+  flex: 1 1 0;
+  min-width: 0;
   width: 100%;
   height: 18px;
-  accent-color: var(--vscode-focusBorder, #007fd4);
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.iso-slider:focus { outline: 0; }
+.iso-slider::-webkit-slider-runnable-track {
+  height: 3px;
+  background: var(--v2-surf-1);
+  border-radius: 2px;
+}
+.iso-slider::-moz-range-track {
+  height: 3px;
+  background: var(--v2-surf-1);
+  border-radius: 2px;
+}
+.iso-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -6px;
+  background: var(--vscode-focusBorder, #007fd4);
+  border: 1px solid var(--v2-line-focus);
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+}
+.iso-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  background: var(--vscode-focusBorder, #007fd4);
+  border: 1px solid var(--v2-line-focus);
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+}
+.iso-slider:focus::-webkit-slider-thumb { box-shadow: 0 0 0 2px rgba(0, 127, 212, 0.35); }
+.iso-slider:focus::-moz-range-thumb     { box-shadow: 0 0 0 2px rgba(0, 127, 212, 0.35); }
+
+/* Iso-level numeric entry. Compact, tabular-nums, V2 surface tinting.
+   Native browser spinners suppressed since the slider already provides a
+   coarse adjuster. */
+.iso-num {
+  flex: 0 0 auto;
+  width: 88px;
+  height: 22px;
+  padding: 0 4px;
+  background: var(--v2-surf-0);
+  border: 1px solid var(--v2-line);
+  border-radius: 3px;
+  color: var(--v2-fg-1);
+  font-family: inherit;
+  font-size: var(--v2-t-micro);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  outline: 0;
+  -moz-appearance: textfield;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.iso-num:focus { border-color: var(--v2-line-focus); }
+.iso-num::-webkit-outer-spin-button,
+.iso-num::-webkit-inner-spin-button {
+  -webkit-appearance: none !important;
+  margin: 0 !important;
+  display: none !important;
 }
 
 .bond-skip-hint {

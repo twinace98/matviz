@@ -13,10 +13,15 @@ const canvas = document.getElementById('canvas') as HTMLCanvasElement;
 const tooltip = document.getElementById('tooltip') as HTMLDivElement;
 
 // V2 info pill (bottom-left). Canonical formula readout, always visible
-// (shifts horizontally to clear the side panel via body.panel-open).
+// (shifts horizontally to clear the side panel via body.panel-open). When
+// an atom is clicked, the picked-atom info appears as an additional
+// segment after the meta — the pill is the single integrated readout for
+// both structure-level and atom-level info (replacing the legacy floating
+// tooltip).
 const infoPill = document.getElementById('info-pill') as HTMLDivElement | null;
 const pillFormula = document.getElementById('pill-formula') as HTMLSpanElement | null;
 const pillMeta = document.getElementById('pill-meta') as HTMLSpanElement | null;
+const pillSelected = document.getElementById('pill-selected') as HTMLSpanElement | null;
 function setInfoPill(formula: string, metaHtml: string) {
   if (pillFormula) pillFormula.textContent = formula;
   if (pillMeta) pillMeta.innerHTML = metaHtml;
@@ -24,6 +29,15 @@ function setInfoPill(formula: string, metaHtml: string) {
 }
 function clearInfoPill() {
   infoPill?.classList.add('hidden');
+}
+function setPillSelected(html: string) {
+  if (!pillSelected) return;
+  pillSelected.innerHTML = html;
+  pillSelected.classList.remove('hidden');
+}
+function clearPillSelected() {
+  pillSelected?.classList.add('hidden');
+  if (pillSelected) pillSelected.innerHTML = '';
 }
 
 // --- Adaptive top-bar height ---
@@ -654,6 +668,72 @@ if (celldashCheck) celldashCheck.addEventListener('change', () => renderer.toggl
 const axisSizeSlider = document.getElementById('axis-size') as HTMLInputElement;
 if (axisSizeSlider) axisSizeSlider.addEventListener('input', () => renderer.setAxisIndicatorSize(parseInt(axisSizeSlider.value)));
 
+// ----- Axis indicator drag (right-click + drag) -----------------------------
+// The axis indicator is rendered as a viewport region on the canvas (not a
+// DOM element), so we hit-test against its bounding rect on pointerdown.
+// Capture phase + stopImmediatePropagation prevents OrbitControls from
+// receiving the right-click and panning the camera at the same time.
+{
+  let dragging = false;
+  let dragGrabX = 0;
+  let dragGrabY = 0;
+  let pointerId = -1;
+
+  // Suppress the native context menu on the canvas — right-click is now a
+  // drag affordance for the axis indicator (and otherwise unused by matviz).
+  canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  canvas.addEventListener('pointerdown', (e) => {
+    if (e.button !== 2) return;                        // right-click only
+    const rect = canvas.getBoundingClientRect();
+    const px = e.clientX - rect.left;
+    const py = e.clientY - rect.top;
+    const a = renderer.getAxisIndicatorRect();
+    if (px < a.x || px > a.x + a.w || py < a.y || py > a.y + a.h) return;
+    // Hit. Lock in the drag, neutralise OrbitControls.
+    dragging = true;
+    pointerId = e.pointerId;
+    dragGrabX = px - a.x;
+    dragGrabY = py - a.y;
+    canvas.setPointerCapture(e.pointerId);
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  }, { capture: true });
+
+  canvas.addEventListener('pointermove', (e) => {
+    if (!dragging || e.pointerId !== pointerId) return;
+    const rect = canvas.getBoundingClientRect();
+    const px = e.clientX - rect.left;
+    const py = e.clientY - rect.top;
+    // New top-left of indicator
+    const newX = px - dragGrabX;
+    const newY = py - dragGrabY;
+    // Default anchor is bottom-right (canvasW - 16 - size, canvasH - 16 - size)
+    // → store as offset from that anchor (positive dx = leftward,
+    // positive dy = upward).
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    const size = renderer.getAxisIndicatorSize();
+    const baseX = w - 16 - size;
+    const baseY = h - 16 - size;
+    renderer.setAxisIndicatorOffset(baseX - newX, baseY - newY);
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  }, { capture: true });
+
+  const endDrag = (e: PointerEvent) => {
+    if (!dragging || e.pointerId !== pointerId) return;
+    dragging = false;
+    pointerId = -1;
+    if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
+    debouncedSave();
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  };
+  canvas.addEventListener('pointerup', endDrag, { capture: true });
+  canvas.addEventListener('pointercancel', endDrag, { capture: true });
+}
+
 // ===== Measure HUD (V2 Feature 18.8) ========================================
 // Top-right glass HUD shown only in measure mode. Tracks the recently-clicked
 // atoms (`measureHistory`) and the most recent measurement value emitted by
@@ -921,6 +1001,7 @@ window.addEventListener('keydown', (e) => {
       renderer.clearSelection();
       renderer.clearMeasurements();
       tooltip.classList.add('hidden');
+      clearPillSelected();
       // Reset Measure HUD state so the next click starts fresh.
       measureHistory.length = 0;
       lastMeasurement = null;
@@ -931,21 +1012,20 @@ window.addEventListener('keydown', (e) => {
 });
 
 // --- Picking callbacks ---
+// Atom select → pill-selected segment (integrated into the bottom-left
+// info pill). Measurements → V2 Measure HUD only (top-right). The legacy
+// floating tooltip is no longer used here; it stays in the DOM for
+// possible future hover affordances but is always hidden in v0.18.0.
 renderer.setAtomSelectCallback((data) => {
   if (data) {
-    tooltip.classList.remove('hidden');
-    tooltip.style.left = '250px';
-    tooltip.style.bottom = '8px';
-    tooltip.style.top = 'auto';
     const f = data.fractional;
-    tooltip.innerHTML = `<b>${data.element}</b> #${data.index}<br>` +
-      `Cart: (${data.cartesian[0].toFixed(3)}, ${data.cartesian[1].toFixed(3)}, ${data.cartesian[2].toFixed(3)})<br>` +
-      `Frac: (${f[0].toFixed(4)}, ${f[1].toFixed(4)}, ${f[2].toFixed(4)})`;
+    const c = data.cartesian;
+    setPillSelected(
+      `<b>${data.element}</b> #${data.index}` +
+      ` \u00B7 Cart (${c[0].toFixed(3)}, ${c[1].toFixed(3)}, ${c[2].toFixed(3)})` +
+      ` \u00B7 Frac (${f[0].toFixed(4)}, ${f[1].toFixed(4)}, ${f[2].toFixed(4)})`
+    );
     vscode.postMessage({ type: 'atomSelected', data });
-    // V2 Measure HUD: track click order so the HUD can render atom-pair
-    // cards and Delta rows. Mirrors renderer.selectedAtoms — after a
-    // dihedral measurement fires, the renderer clears its selection; the
-    // next atom-select wipes measureHistory so a new cycle starts clean.
     if (interactionMode === 'measure') {
       if (measurePendingClear) {
         measureHistory.length = 0;
@@ -962,7 +1042,7 @@ renderer.setAtomSelectCallback((data) => {
       renderMeasureHud();
     }
   } else {
-    tooltip.classList.add('hidden');
+    clearPillSelected();
     if (interactionMode === 'measure') {
       measureHistory.length = 0;
       lastMeasurement = null;
@@ -973,9 +1053,6 @@ renderer.setAtomSelectCallback((data) => {
 });
 
 renderer.setMeasurementCallback((data) => {
-  const unit = data.type === 'distance' ? ' \u00C5' : '\u00B0';
-  tooltip.classList.remove('hidden');
-  tooltip.innerHTML += `<br>${data.type}: ${data.value.toFixed(3)}${unit}`;
   vscode.postMessage({ type: 'measurement', data });
   lastMeasurement = { type: data.type, value: data.value, atoms: data.atoms.slice() };
   if (data.type === 'dihedral') measurePendingClear = true;
@@ -998,6 +1075,7 @@ type PersistedState = ReturnType<typeof renderer.getState> & {
   panelWidth?: number;
   stepAngle?: number;
   stepZoom?: number;
+  axisIndicatorOffset?: { dx: number; dy: number };
 };
 function saveState() {
   const s = renderer.getState() as PersistedState;
@@ -1005,6 +1083,7 @@ function saveState() {
   s.panelWidth = sidePanel.getBoundingClientRect().width;
   s.stepAngle = parseFloat(stepAngleInput?.value) || 15;
   s.stepZoom = parseFloat(stepZoomInput?.value) || 10;
+  s.axisIndicatorOffset = renderer.getAxisIndicatorOffset();
   vscode.setState(s);
 }
 const debouncedSave = debounce(saveState, 300);
@@ -1030,6 +1109,14 @@ if (savedState && savedState.schemaVersion === 1) {
   if (typeof savedState.panelWidth === 'number' && savedState.panelWidth >= 180) {
     sidePanel.style.width = savedState.panelWidth + 'px';
     document.documentElement.style.setProperty('--side-panel-w', savedState.panelWidth + 'px');
+  }
+  if (savedState.axisIndicatorOffset
+      && typeof savedState.axisIndicatorOffset.dx === 'number'
+      && typeof savedState.axisIndicatorOffset.dy === 'number') {
+    renderer.setAxisIndicatorOffset(
+      savedState.axisIndicatorOffset.dx,
+      savedState.axisIndicatorOffset.dy,
+    );
   }
   if (scA && savedState.supercell) {
     scA.value = String(savedState.supercell[0]);

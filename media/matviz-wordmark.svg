@@ -1,0 +1,33 @@
+<!--
+  Matviz wordmark — composite SVG used in the README header.
+  Mirrors media/brand-wordmark.html's #matviz-cluster-dark glyph (48 unit
+  coordinate system) on the left, with the product name + tagline on the
+  right. Single file so GitHub/marketplace render reliably without a
+  separate stylesheet.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="64" viewBox="0 0 320 64" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace">
+  <!-- Cluster glyph (48×48, dark build) -->
+  <g transform="translate(8 8)">
+    <g stroke="#1a1a1a" stroke-width="4" stroke-linecap="round">
+      <line x1="24" y1="26" x2="10" y2="15"/>
+      <line x1="24" y1="26" x2="36" y2="9"/>
+      <line x1="24" y1="26" x2="41" y2="29"/>
+      <line x1="24" y1="26" x2="17" y2="40"/>
+    </g>
+    <g stroke="#d6d6d6" stroke-width="1.8" stroke-linecap="round">
+      <line x1="24" y1="26" x2="10" y2="15"/>
+      <line x1="24" y1="26" x2="36" y2="9"/>
+      <line x1="24" y1="26" x2="41" y2="29"/>
+      <line x1="24" y1="26" x2="17" y2="40"/>
+    </g>
+    <circle cx="10" cy="15" r="5"   fill="#6b85ff" stroke="#1a1a1a" stroke-width=".8"/>
+    <circle cx="36" cy="9"  r="3.8" fill="#ffd233" stroke="#1a1a1a" stroke-width=".8"/>
+    <circle cx="41" cy="29" r="4.4" fill="#ff4d4d" stroke="#1a1a1a" stroke-width=".8"/>
+    <circle cx="17" cy="40" r="4"   fill="#ff9d3a" stroke="#1a1a1a" stroke-width=".8"/>
+    <circle cx="24" cy="26" r="6"   fill="#007fd4" stroke="#0a3a5c" stroke-width="1"/>
+  </g>
+
+  <!-- Wordmark: "Mat" in foreground, "Viz" in VSCode focus blue -->
+  <text x="74" y="34" font-size="26" font-weight="700" letter-spacing="-0.5" fill="#cccccc">Mat<tspan fill="#007fd4">Viz</tspan></text>
+  <text x="74" y="50" font-size="10" font-weight="400" letter-spacing="2" fill="#888888">CRYSTAL STRUCTURE VIEWER</text>
+</svg>

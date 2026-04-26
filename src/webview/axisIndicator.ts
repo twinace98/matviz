@@ -18,8 +18,33 @@ export class AxisIndicator {
     this.build([1, 0, 0], [0, 1, 0], [0, 0, 1]);
   }
 
+  // Position offset from the default bottom-right anchor (CSS pixels). dx
+  // shifts the indicator left from the right edge; dy shifts it up from the
+  // bottom edge. Persisted as offsets (not absolute coords) so canvas
+  // resizing keeps the indicator near its placed corner instead of going
+  // off-screen.
+  private _dx = 0;
+  private _dy = 0;
+
   get size(): number { return this._size; }
   setSize(px: number) { this._size = Math.max(60, Math.min(400, px)); }
+
+  get offset(): { dx: number; dy: number } { return { dx: this._dx, dy: this._dy }; }
+  setOffset(dx: number, dy: number) { this._dx = dx; this._dy = dy; }
+  resetOffset() { this._dx = 0; this._dy = 0; }
+
+  /** Indicator's bounding rect in CSS pixels (top-left origin), clamped to
+   *  stay within the canvas. Used for both rendering (after Y flip) and
+   *  pointer hit-testing on the DOM side. */
+  getRect(canvasW: number, canvasH: number): { x: number; y: number; w: number; h: number } {
+    const size = this._size;
+    const margin = 16;
+    const baseX = canvasW - margin - size;
+    const baseY = canvasH - margin - size;
+    const x = Math.max(0, Math.min(canvasW - size, baseX - this._dx));
+    const y = Math.max(0, Math.min(canvasH - size, baseY - this._dy));
+    return { x, y, w: size, h: size };
+  }
 
   update(a: number[], b: number[], c: number[]) { this.build(a, b, c); }
 
@@ -98,18 +123,15 @@ export class AxisIndicator {
   }
 
   render(renderer: THREE.WebGLRenderer) {
-    const size = this._size;
-    // V2 floating UI: axis indicator anchored bottom-right (V1 was
-    // bottom-left). 16px margin matches V2 spec. setViewport/setScissor
-    // accept CSS pixels — Three.js multiplies by pixel ratio internally —
-    // so use canvas clientWidth (CSS px) for the right-aligned X.
     const canvasW = renderer.domElement.clientWidth;
-    const margin = 16;
-    const x = canvasW - margin - size;
-    const y = margin;
-    renderer.setViewport(x, y, size, size);
+    const canvasH = renderer.domElement.clientHeight;
+    const rect = this.getRect(canvasW, canvasH);
+    // setViewport/setScissor use bottom-up Y in CSS pixels; getRect returns
+    // a top-down DOM rect. Convert by reflecting around canvas height.
+    const vy = canvasH - rect.y - rect.h;
+    renderer.setViewport(rect.x, vy, rect.w, rect.h);
     renderer.setScissorTest(true);
-    renderer.setScissor(x, y, size, size);
+    renderer.setScissor(rect.x, vy, rect.w, rect.h);
     renderer.autoClear = false;
     renderer.clearDepth();
     renderer.render(this.scene, this.camera);

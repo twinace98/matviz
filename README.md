@@ -1,5 +1,9 @@
 # MatViz — Crystal Structure Viewer for VSCode
 
+<p align="center">
+  <img src="media/matviz-wordmark.svg" alt="MatViz — Crystal Structure Viewer" width="320" />
+</p>
+
 Interactive 3D crystal structure visualization as a VSCode extension,
 inspired by VESTA. Handles parsing, rendering, measurement, isosurfaces,
 and PNG export for 10+ computational-materials file formats from a single
@@ -35,36 +39,57 @@ with an **Open as Text** action is shown.
 
 ## UI layout
 
+The webview is built around the V2 *Floating UI* (shipped in v0.18.0):
+3D viewport fills the canvas; chrome floats above as translucent glass
+panels.
+
 ```
-+--[Top Toolbar]----------------------------------------------+
-|  a b c a* b* c*  |  home  |  arrows/rotate  |  zoom  | cam |
-+--+--+-------------------------------------------------------+
-|Mo|  | Side Panel (resizable, collapsible)                    |
-|de|  |  - Structure info (formula, atom count, spacegroup, V) |
-|  |  |  - Display style                                       |
-|ba|  |  - Camera (Ortho/Persp)                                |
-|r |  |  - Visibility toggles                                  |
-|  |  |  - Axes size slider                                    |
-|  |  |  - Supercell inputs (1–5 per axis)                     |
-|  |  |  - Iso-level slider + numeric input                    |
-|  |  |  - Atoms (per-element color/radius/visibility)         |
-|  |  |  - Bonds (per-pair min/max cutoffs)                    |
-|  |  |  - Polyhedra centers (per-element checkboxes)          |
-|  |  |  - Options (impostor rendering toggle, etc.)           |
-+--+--+-------------------------------------------------------+
-|                                                              |
-|                    3D Viewport                                |
-|  [Axis indicator a/b/c]                                      |
-+--------------------------------------------------------------+
++----------------------------------------------------------------+
+|Mo|  Side Panel (rounded, glass, 8px inset on every edge)       |
+|de|     STYLE              [Ball&Stick] [Space-fill] [Stick]…   |
+|   |    CAMERA             [Ortho]                              |
+|ra|     VISIBILITY         toggle switches (Bonds, Labels…) |
+|il|     AXES SIZE          slider                               |
+|  |     SUPERCELL          [-  N  +] × 3 (fluid, no upper cap)  |
+|  |     ISO-LEVEL          slider + numeric (volumetric only)   |
+|  |     OVERLAY ▶          collapsed by default                 |
+|  |     ATOMS ▶            per-element color/radius/visibility  |
+|  |     BONDS ▶            per-pair min/max as `.num-wrap`      |
+|  |     POLYHEDRA CTRS ▶                                        |
+|  |     OPTIONS ▶          impostor toggle, etc.                |
++--+-------------------------------------------------------------+
+|                                                                |
+|     [Top toolbar — content-sized centered glass pill,          |
+|      wraps + shrinks below 870 px (panel closed) /             |
+|      1140 px (panel open)]                                     |
+|                                                                |
+|                      3D Viewport                               |
+|                                                                |
+|                                          [Axis indicator a/b/c]|
+|  [Info pill — formula · spg · N atoms · V Å³ · selected atom]  |
++----------------------------------------------------------------+
 ```
 
-The side panel supports two layout modes:
-
-- **Offset** (default): panel sits beside the canvas, canvas never hidden.
-- **Overlay**: panel floats over the canvas (toggle via the layout button in the panel header).
-
-Collapse with the ▶ handle; drag the right edge to resize. All
-layout/width/collapsed state is persisted per file.
+- **Mode rail** (full-height left edge): navigate / measure / panel-toggle
+  / shortcuts. Glass surface; rendered above all floating chrome
+  (z-index 13).
+- **Top toolbar**: floating glass pill, centered in the canvas-clear
+  region (shifts right when the panel is open). Single row at typical
+  editor widths; wraps + shrinks via `@media` breakpoints below the
+  natural single-row width.
+- **Side panel**: rounded glass card, `8 px` inset from rail / top /
+  bottom. Resize by dragging the right edge; collapse via the ◀ button
+  on the rail. Inner sections live in a thin custom-scrollbar region.
+- **Info pill** (bottom-left): always-visible canonical readout —
+  `formula · spg · atoms · volume`. When you click an atom it expands
+  with a divider + selected-atom segment (element, index, cart, frac)
+  so atom-level info lives in the same chrome instead of a separate
+  tooltip.
+- **Measure HUD** (top-right, measure mode only): segmented switcher
+  (Distance / Angle / Dihedral) + hero number with gradient text +
+  atom-pair card + Δ fractional/cartesian rows + Copy button.
+- **Axis indicator** (bottom-right by default): right-click + drag to
+  reposition anywhere on the canvas. The offset is persisted per file.
 
 ## Features
 
@@ -89,7 +114,9 @@ layout/width/collapsed state is persisted per file.
 ### Navigation
 
 - **Mouse**: left-drag to rotate (quaternion-based, no gimbal lock),
-  right-drag to pan, scroll to zoom.
+  middle-drag (or right-drag outside the axis indicator) to pan, scroll
+  to zoom. Right-drag inside the axis-indicator region repositions the
+  indicator instead of panning the camera.
 - **Constrained rotation**: Shift+drag locks to one axis, Ctrl/Cmd+drag
   gives screen-Z roll.
 - **Quick views**: a, b, c, a\*, b\*, c\* buttons with animated
@@ -108,9 +135,12 @@ layout/width/collapsed state is persisted per file.
   `_symmetry_equiv_pos_as_xyz` and `_space_group_symop_operation_xyz`,
   applies operations to the asymmetric unit with duplicate removal
   (tolerance 1e-3 Å fractional).
-- **Supercell expansion**: 1–5× per axis, visualized with dashed internal
-  cell boundaries. Bonds, isosurfaces, and polyhedra all re-tile
-  consistently with the supercell.
+- **Supercell expansion**: any positive integer per axis (the V2 stepper
+  removes the previous 1–5 cap), visualized with dashed internal cell
+  boundaries. Bonds, isosurfaces, and polyhedra all re-tile
+  consistently with the supercell. Bond detection still hard-skips
+  above 5 000 atoms, so very large supercells get the "Compute anyway"
+  banner instead of a stalled webview.
 - **Boundary atoms** (on by default): atoms that sit on cell
   faces/edges/corners are duplicated to their periodic-image positions
   so the unit cell looks complete from all sides. Wraps fractional
@@ -120,22 +150,30 @@ layout/width/collapsed state is persisted per file.
 - **Lattice planes**: add by Miller indices (hkl) from the command
   palette; any number of planes can be stacked, each in a different
   color.
-- **Axis indicator** (bottom-left inset): a (red), b (green), c (blue)
-  arrows synchronized with camera rotation. Size configurable (60–400 px).
+- **Axis indicator** (bottom-right by default; **right-click + drag** to
+  move anywhere): a (red), b (green), c (blue) arrows synchronized with
+  camera rotation. Size configurable (60–400 px). Position offset is
+  persisted in the saved state so each file remembers where you parked
+  it.
 
 ### Interaction
 
 - **Navigate mode** (default): click an atom to see its element, global
-  index, unit-cell index, cartesian coords, and fractional coords.
+  index, unit-cell index, cartesian coords, and fractional coords. The
+  picked atom info appears as an additional segment in the bottom-left
+  info pill (no separate floating tooltip).
 - **Measure mode**: pick
   - 2 atoms for distance (Å),
   - 3 atoms for bond angle (°, yellow dashed legs),
   - 4 atoms for dihedral (°, cyan+magenta dashed plane outlines).
+  In measure mode the **Measure HUD** appears top-right with a hero
+  number + atom-pair card + Δ readouts; press `Esc` or the `✕` button
+  to clear.
 - **Selection highlight**: selected atoms turn cyan; `Esc` clears them.
 - **Hybrid GPU picking**: for structures with ≥ 5 000 atoms, atom picks
   go through a 1×1 WebGL render target (~1 ms); below the threshold the
   CPU raycaster path is used. Both are transparent to the user.
-- Mode is chosen from the left toolbar (navigate / measure icons).
+- Mode is chosen from the left rail (navigate / measure icons).
 
 ### Atom and bond properties
 
@@ -144,8 +182,9 @@ layout/width/collapsed state is persisted per file.
   - Radius slider (0.1–1.5 Å).
   - Visibility checkbox.
 - **Per-pair bond parameters** (Bonds section):
-  - Enable/disable per pair (e.g., ignore Sr–Ti in perovskite).
-  - Min/max distance cutoffs. Default: `min = 0.1`, `max = r_A + r_B + 0.3`.
+  - Enable/disable per pair via iOS-style switch.
+  - Min/max distance cutoffs as the unified `.num-wrap` stepper (Å,
+    0.05 step). Default: `min = 0.1`, `max = r_A + r_B + 0.3`.
 - **Bond-detection skip hint**: if the structure exceeds 5 000 atoms,
   bond detection is skipped by default (O(N) spatial hashing, but each
   voxel scan is nontrivial at that size). A banner in the Bonds section
@@ -196,6 +235,20 @@ layout/width/collapsed state is persisted per file.
   happen to be stored with a large padding box may show visible seams
   between tiled copies — expected.
 
+### Multi-phase overlay (Overlay panel section)
+
+- The side-panel **Overlay** section (collapsed by default) lets you
+  load secondary structures as transparent overlays on top of the
+  primary — useful for comparing relax/before-after, polymorph
+  comparison, defect vs perfect cell, or cross-functional DFT runs.
+- Click **+ Add Overlay…** to file-pick another structure. Each loaded
+  phase gets a row with visibility / opacity controls.
+- **Compare to first overlay**: NN-matched displacement arrows from
+  primary atoms to the first phase, color-mapped Viridis. PBC-aware on
+  identical lattices (minimum-image distance), raw cartesian otherwise.
+- Same capability is exposed in the headless CLI via `--phase` /
+  `--compare-to-phase` (see flag table below).
+
 ### Export
 
 - **Screenshot** (camera icon in the top toolbar): PNG at 2× pixel
@@ -208,18 +261,34 @@ layout/width/collapsed state is persisted per file.
 
 ### UI details
 
+- **Unified inline-SVG icons** throughout the toolbar + mode rail
+  (16×16, 1.5 px stroke, currentColor) — no Unicode/emoji glyphs except
+  in the Help overlay's `<kbd>` arrows.
+- **iOS-style switches** for every visibility checkbox (Bonds, Labels,
+  Polyhedra, Boundary, Cell lines, per-element atoms list, per-pair
+  bonds list, etc.). VSCode focus-blue when on; smooth 200 ms thumb
+  transition.
 - All UI follows the active VSCode theme (dark / light).
-- **Palette toggle**: ☽ / ☀ button in the top toolbar flips between
+- **Palette toggle**: moon / sun icon in the top toolbar flips between
   dark-palette (brightened CPK colors) and light-palette color schemes;
   independent from the editor theme.
-- **Responsive toolbar**: compacts itself (labels → icons → wrap) via
-  CSS container queries between 400 and 2000 px editor width.
+- **Responsive toolbar**: content-sized centered glass pill at typical
+  editor widths; switches to anchored-edges + `flex-wrap: wrap` mode
+  with progressively shrunk buttons below the natural single-row width
+  (≤ 870 px panel-closed / ≤ 1140 px panel-open). Two further
+  shrink-tiers at ≤ 540 / 810 px keep all icons reachable on very
+  narrow editor panes.
+- **Help overlay**: 4-column grid (Rotation / Navigation / Style /
+  Mode), 720 px glass card with a `backdrop-filter` scrim. `?` to
+  open; `Esc` to close.
 - **Persistent state** (schema v1, stored per-webview): display style,
   camera position/zoom, orthographic/perspective choice, supercell,
-  per-element overrides, per-pair bond parameters, layout mode, panel
-  width and collapsed state, iso level, axis indicator size, impostor
-  toggle, polyhedra-center selection. `showPolyhedra` is intentionally
-  **not** restored so every file-open starts with polyhedra off.
+  per-element overrides, per-pair bond parameters, panel width and
+  collapsed state, iso level, axis indicator size and **drag offset**,
+  impostor toggle, polyhedra-center selection. `layoutMode` keys from
+  pre-v0.18 sessions are silently ignored on read (V2 is overlay-only).
+  `showPolyhedra` is intentionally **not** restored so every
+  file-open starts with polyhedra off.
 - **Tooltips on hover** for every toolbar button, slider, input, and
   side-panel control.
 
@@ -227,12 +296,19 @@ layout/width/collapsed state is persisted per file.
 
 | Key | Action |
 |---|---|
-| `↑` / `↓` | Rotate model up / down (model-space, matches arrow button direction) |
+| `↑` / `↓` | Rotate model up / down |
 | `←` / `→` | Rotate model left / right |
-| Shift + arrow | Fine rotate (1° step) |
+| `h` / `j` / `k` / `l` | Vim-style rotate (left / down / up / right) |
+| `[` / `]` | Rotate around screen-Z (CCW / CW) |
+| Shift + key | Fine rotate (1° step) for arrows / hjkl / `[` `]` |
 | `+` / `-` | Zoom in / out |
-| `Escape` | Clear selection and measurements; hide info tooltip |
+| `1` / `2` / `3` / `4` | Display style: Ball & Stick / Space-filling / Stick / Wireframe |
+| `Escape` | Clear selection, measurements, and the selected-atom segment of the info pill; close the help overlay |
 | `?` | Open the shortcut-reference modal |
+| Right-click + drag on axis indicator | Reposition the indicator anywhere on the canvas |
+
+Digit shortcuts `1`–`4` are skipped when an input/textarea/contenteditable
+is focused so digit entry in the Step / Supercell inputs still works.
 
 The rotation *step size* is set by the **Step(°)** input in the top
 toolbar (default 15°); the zoom step by **Step(%)** (default 10%).
@@ -277,7 +353,7 @@ Or step-by-step:
 npm install
 npm run build
 npx @vscode/vsce package --no-dependencies
-code --install-extension vscode-matviz-0.15.0.vsix --force
+code --install-extension vscode-matviz-0.18.0.vsix --force
 npm run install-skill   # optional — only if you use Claude Code
 ```
 
