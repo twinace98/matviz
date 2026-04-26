@@ -1,7 +1,7 @@
 # Project Status
 
-- **Version**: v0.17.4 (CLI parity patch — `--phase` + `--compare-to-phase`) shipped 2026-04-26. Closes the CLI/webview feature-parity gap for multi-phase overlay and comparison. Earlier bundled release v0.17.3 (v0.16 + v0.17 + v0.17.1 + v0.17.2 + v0.17.3) shipped 2026-04-23.
-- **Phase**: v0.18.0 (Floating UI / V2 redesign) **kickoff approved 2026-04-26**, on hold while v0.17.4 was inserted. Plan + impl spec already drafted in `plans/v0.18.0_floating-ui*.md` (uncommitted). Feature 18.1 (groundwork — unified SVG icons + step-angle/zoom stepper) code complete and quality-gate-clean, pre-commit (modifications in `media/styles.css`, `src/editor/crystalEditorProvider.ts`, `src/webview/main.ts`). v0.18 reroutes the v0.18 slot from "Editor integration" → "Floating UI"; the editor-integration backlog shifts to v0.19.
+- **Version**: v0.18.0 (Floating UI / V2 redesign) shipped 2026-04-26. Adopts the V2 Floating Panels design language: glass-tokenized chrome over the 3D viewport, floating centered toolbar, rounded glass side panel, iOS-style toggle switches, style chips, V2 supercell stepper (`− N +`, no upper bound), bottom-left info pill, axis gizmo bottom-right, redesigned 4-column help overlay with digit-key shortcuts (1–4 for display style), and a top-right Measure HUD that renders distance / angle / dihedral with V2 hero typography, atom-pair card, Δ readouts, and a copy button. Earlier release v0.17.4 (CLI parity patch — `--phase` + `--compare-to-phase`) shipped 2026-04-26.
+- **Phase**: v0.18 closed. v0.19 inherits the editor-integration backlog (split-pane, settings namespace, undo/redo, marketplace) per Plan.md.
 - **People**: Seungwoo Shin (twinace98)
 - **Repo**: https://github.com/twinace98/matviz.git (also pushes to `sogang-qmp` remote)
 
@@ -10,10 +10,10 @@
 1. Read in order: `CLAUDE.md` (architecture + workflow) → `Plan.md` (roadmap) → this file → active `plans/` pair if any.
 2. Auto-memory loads from `~/.claude/projects/-home-swshin-matviz/memory/`.
 3. **Next action** (in priority order):
-   1. Commit v0.18.0 kickoff (Plan.md + STATUS.md + plans/v0.18.0_floating-ui*.md) as `chore(v0.18.0): kick off plan + impl spec for Floating UI (V2 redesign)`.
-   2. Commit Feature 18.1 (already pre-staged in working tree: ICON object, step-angle/zoom stepper, palette innerHTML swap in `media/styles.css` + `src/editor/crystalEditorProvider.ts` + `src/webview/main.ts`) as `feat(v0.18.0.1): unified SVG icons + step-angle/zoom stepper (V2 groundwork)`.
-   3. Begin Feature 18.2 (V2 design tokens in `media/styles.css`) per `plans/v0.18.0_floating-ui_impl.md`.
-   4. v0.17.x backlog (CLI polish — see Plan.md "v0.17.x backlog") is to-do but does not block v0.18.
+   1. Manual fixture sweep on the v0.18.0 install — open at least one of each: CIF (NaCl), POSCAR (silicon), CHGCAR with iso, AXSF trajectory. Confirm the floating chrome reads correctly on a non-trivial structure (e.g. SrTiO3 supercell with polyhedra on). If any visual regression, file as v0.18.1 patch.
+   2. Push to remote when ready (`git push` + `git push --tags`) — the v0.18.0 tag is local until then.
+   3. v0.19 kickoff — editor integration (split-pane, settings namespace, undo/redo, marketplace publish) per Plan.md. Architectural decision gate: migrate to `CustomTextEditorProvider` vs. companion text editor.
+   4. v0.17.x backlog (CLI polish — see Plan.md "v0.17.x backlog") is to-do but does not block v0.19.
 
 ## Completed
 
@@ -32,6 +32,7 @@
 - **v0.17.2** (2026-04-23): UX + correctness patch — unified Phases+Comparison side-panel UI + playback UX polish (Space, speed slider, frame input, once-only loop) + vscode toast (17.2.1); PBC-aware NN matching (minimum-image distance) (17.2.2); RMSD/displacement summary panel (17.2.3).
 - **v0.17.3** (2026-04-23): Trajectory CLI — `--frame N` for single-frame extraction with content-based XDATCAR/AXSF auto-detect (17.3.1); `--all-frames` for PNG sequence rendering with browser reuse (17.3.2). Enables matviz-render skill MD-trajectory animation workflow via ffmpeg.
 - **v0.17.4** (2026-04-26): Phase + comparison CLI — `--phase <file>` repeatable transparent overlay (17.4.1); `--compare-to-phase` NN displacement arrows + Viridis colormap + single-line `[comparison] RMSD: …` stdout summary, PBC-aware on identical lattices (17.4.2). Closes CLI/webview parity for multi-phase + comparison features.
+- **v0.18.0** (2026-04-26): Floating UI / V2 redesign — V2 design tokens (glass / surface / line / shadow / type scale) (18.2); full-height glass mode rail (18.3); centered floating glass toolbar (18.4); detached floating glass side panel + offset/overlay toggle removed (18.5); style chips replacing the display-style `<select>`, iOS-style toggle switches in VSCode focus blue, V2 supercell `− N +` stepper with upper bound removed, canonical bottom-left info pill, axis gizmo bottom-right (18.6); 4-column help overlay redesign + global digit shortcuts 1–4 → display style (18.7); top-right Measure HUD overlay with hero distance/angle/dihedral, atom-pair card, Δ fractional + cartesian rows, and a clipboard copy button (18.8). Groundwork commit (18.1) introduced the unified inline-SVG icon set (24 glyphs replacing Unicode/emoji) and the full-height ▲/▼ numeric stepper for step-angle / step-zoom (`type="text"` + `inputmode="numeric"` to bypass native browser spinners). All 8 features landed as separate `feat(v0.18.0.N)` commits behind a single `chore(v0.18.0)` kickoff.
 
 ## Hotfixes
 
@@ -40,7 +41,8 @@
 
 ## Pending (from Plan.md)
 
-- [ ] **v0.18** — Floating UI / V2 redesign (8 sub-features 18.1–18.8). Plan pair drafted (`plans/v0.18.0_floating-ui*.md`), not yet committed. Kickoff approved 2026-04-26; resumed after v0.17.4 release.
+- [x] **v0.18** — Floating UI / V2 redesign (8 sub-features 18.1–18.8). Shipped 2026-04-26. Plan pair archived to `plans/archives/`.
+- [ ] **v0.19** — Editor integration (split-pane, VSCode settings namespace, undo/redo, marketplace publish). Inherited from old v0.18 placeholder.
 - [ ] **v0.17.x backlog** (CLI polish): per-phase opacity/offset, trajectory phase frame selection, per-phase tint, `--compare-trajectory`, `--stats-out` JSON, per-pair displacement listing. To-do but non-blocking.
 
 ## Decisions locked in
