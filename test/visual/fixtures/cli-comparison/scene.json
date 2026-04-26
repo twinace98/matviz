@@ -1,0 +1,10 @@
+{
+  "input": "../../../fixtures/nacl.cif",
+  "view": "std",
+  "palette": "dark",
+  "width": 800,
+  "height": 600,
+  "bg": "#1e1e1e",
+  "phases": ["../../../fixtures/nacl-perturbed.cif"],
+  "compareToPhase": true
+}

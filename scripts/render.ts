@@ -294,7 +294,7 @@ window.__renderDone = true;
 </script></body></html>`;
 }
 
-function generateStructureHTML(opts: RenderOptions, structureJSON: string, volumetricJSON: string | null, phasesJSON: string = '[]'): string {
+function generateStructureHTML(opts: RenderOptions, structureJSON: string, volumetricJSON: string | null, phasesJSON: string = '[]', compareToPhase: boolean = false): string {
   const threeURL = '__THREE_PATH__';
   const helpersURL = '__HELPERS_PATH__';
 
@@ -316,6 +316,10 @@ renderer.setPixelRatio(1);
 const structure = ${structureJSON};
 // v0.17.4.1 secondary phases (already-parsed, [] when no --phase given).
 const phases = ${phasesJSON};
+// v0.17.4.2 comparison toggle — when true, compute NN displacement
+// from primary to phases[0] and render arrows + emit window.__comparisonStats
+// for Node-side stdout summary.
+const compareToPhase = ${compareToPhase ? 'true' : 'false'};
 const volumetric = ${volumetricJSON || 'null'};
 const OPTS = ${JSON.stringify({
     style: opts.style,
@@ -1002,6 +1006,153 @@ if (phases.length > 0) {
   }
 }
 
+// --- 17.4.2 Comparison: NN displacement arrows + RMSD stats ---
+// Mirrors src/webview/{nnMatching,displacementArrowRenderer,renderer}.ts.
+// PBC-aware when primary/secondary lattices match element-wise. Stats are
+// stashed on window.__comparisonStats for Node-side stdout extraction.
+if (compareToPhase && phases.length > 0) {
+  const ZERO_THRESHOLD = 0.05;        // Å — arrows below this are skipped
+  const SCALE = 1.0;                   // arrow Å per Å of displacement
+  const VIRIDIS = [
+    [0.267, 0.005, 0.329],
+    [0.231, 0.322, 0.545],
+    [0.129, 0.569, 0.549],
+    [0.992, 0.906, 0.144],
+  ];
+  function interpStops(t, stops) {
+    if (t <= 0) return stops[0];
+    if (t >= 1) return stops[stops.length - 1];
+    const seg = t * (stops.length - 1);
+    const i = Math.floor(seg), f = seg - i;
+    const a = stops[i], b = stops[i+1];
+    return [a[0]+f*(b[0]-a[0]), a[1]+f*(b[1]-a[1]), a[2]+f*(b[2]-a[2])];
+  }
+  // Element-wise lattice equality: cell-mismatched comparison falls back to
+  // raw cartesian (minimum-image is ill-defined when cells differ).
+  function latticesEqual(a, b) {
+    if (!a || !b) return false;
+    for (let r = 0; r < 3; r++)
+      for (let c = 0; c < 3; c++)
+        if (Math.abs(a[r][c] - b[r][c]) > 1e-9) return false;
+    return true;
+  }
+  function applyMinimumImage(dx, dy, dz, lat) {
+    const a = lat[0], b = lat[1], c = lat[2];
+    const det = a[0]*(b[1]*c[2]-b[2]*c[1]) - a[1]*(b[0]*c[2]-b[2]*c[0]) + a[2]*(b[0]*c[1]-b[1]*c[0]);
+    if (Math.abs(det) < 1e-10) return [dx, dy, dz];
+    const inv = 1 / det;
+    let fx = ((b[1]*c[2]-b[2]*c[1])*dx + (b[2]*c[0]-b[0]*c[2])*dy + (b[0]*c[1]-b[1]*c[0])*dz) * inv;
+    let fy = ((a[2]*c[1]-a[1]*c[2])*dx + (a[0]*c[2]-a[2]*c[0])*dy + (a[1]*c[0]-a[0]*c[1])*dz) * inv;
+    let fz = ((a[1]*b[2]-a[2]*b[1])*dx + (a[2]*b[0]-a[0]*b[2])*dy + (a[0]*b[1]-a[1]*b[0])*dz) * inv;
+    fx -= Math.round(fx); fy -= Math.round(fy); fz -= Math.round(fz);
+    return [
+      fx*a[0] + fy*b[0] + fz*c[0],
+      fx*a[1] + fy*b[1] + fz*c[1],
+      fx*a[2] + fy*b[2] + fz*c[2],
+    ];
+  }
+  // NN matching, greedy by species
+  const sec = phases[0];
+  const usePBC = latticesEqual(structure.lattice, sec.lattice);
+  const lat = sec.lattice;
+  const secBySpecies = new Map();
+  for (let i = 0; i < sec.species.length; i++) {
+    const s = sec.species[i];
+    if (!secBySpecies.has(s)) secBySpecies.set(s, []);
+    secBySpecies.get(s).push(i);
+  }
+  const usedSecondary = new Set();
+  const pairs = [];
+  let unmatched = 0;
+  const threshold = 2.0;
+  const thresholdSq = threshold * threshold;
+  for (let a = 0; a < structure.species.length; a++) {
+    const cands = secBySpecies.get(structure.species[a]);
+    if (!cands) { unmatched++; continue; }
+    let bestIdx = -1, bestSq = thresholdSq, bestD = [0,0,0];
+    for (const b of cands) {
+      if (usedSecondary.has(b)) continue;
+      let dx = sec.positions[b][0] - structure.positions[a][0];
+      let dy = sec.positions[b][1] - structure.positions[a][1];
+      let dz = sec.positions[b][2] - structure.positions[a][2];
+      if (usePBC) {
+        const w = applyMinimumImage(dx, dy, dz, lat);
+        dx = w[0]; dy = w[1]; dz = w[2];
+      }
+      const dsq = dx*dx + dy*dy + dz*dz;
+      if (dsq < bestSq) { bestSq = dsq; bestIdx = b; bestD = [dx, dy, dz]; }
+    }
+    if (bestIdx === -1) { unmatched++; continue; }
+    usedSecondary.add(bestIdx);
+    pairs.push({ a, b: bestIdx, d: bestD });
+  }
+  // Stats
+  let sum2 = 0, sum = 0, max = 0;
+  const mags = [];
+  for (const p of pairs) {
+    const m2 = p.d[0]*p.d[0] + p.d[1]*p.d[1] + p.d[2]*p.d[2];
+    const m = Math.sqrt(m2);
+    sum2 += m2; sum += m; if (m > max) max = m;
+    mags.push(m);
+  }
+  mags.sort((x, y) => x - y);
+  const p95 = mags.length > 0 ? mags[Math.min(mags.length - 1, Math.floor(0.95 * mags.length))] : 0;
+  window.__comparisonStats = {
+    rmsd: pairs.length > 0 ? Math.sqrt(sum2 / pairs.length) : 0,
+    maxDisplacement: max,
+    meanDisplacement: pairs.length > 0 ? sum / pairs.length : 0,
+    p95Displacement: p95,
+    matchedCount: pairs.length,
+    unmatchedCount: unmatched,
+  };
+  // Arrow render — viridis colormap, cone+cylinder InstancedMesh
+  const live = pairs.filter(p => Math.sqrt(p.d[0]*p.d[0]+p.d[1]*p.d[1]+p.d[2]*p.d[2]) >= ZERO_THRESHOLD);
+  if (live.length > 0) {
+    const maxMag = Math.max(...live.map(p => Math.sqrt(p.d[0]*p.d[0]+p.d[1]*p.d[1]+p.d[2]*p.d[2])), 1e-6);
+    const shaftGeo = new THREE.CylinderGeometry(0.05, 0.05, 1, 12, 1, false);
+    const tipGeo = new THREE.ConeGeometry(0.14, 0.30, 16);
+    const shaftMat = new THREE.MeshPhongMaterial({ color: 0xffffff, shininess: 30 });
+    const tipMat = new THREE.MeshPhongMaterial({ color: 0xffffff, shininess: 30 });
+    const shaftMesh = new THREE.InstancedMesh(shaftGeo, shaftMat, live.length);
+    const tipMesh = new THREE.InstancedMesh(tipGeo, tipMat, live.length);
+    const yAxis = new THREE.Vector3(0, 1, 0);
+    const dir = new THREE.Vector3();
+    const quat = new THREE.Quaternion();
+    const sm = new THREE.Matrix4();
+    const tm = new THREE.Matrix4();
+    const tmpC = new THREE.Color();
+    for (let i = 0; i < live.length; i++) {
+      const inst = live[i];
+      const mag = Math.sqrt(inst.d[0]*inst.d[0]+inst.d[1]*inst.d[1]+inst.d[2]*inst.d[2]);
+      const len = mag * SCALE;
+      dir.set(inst.d[0], inst.d[1], inst.d[2]).normalize();
+      quat.setFromUnitVectors(yAxis, dir);
+      const pos = structure.positions[inst.a];
+      sm.compose(
+        new THREE.Vector3(pos[0]+0.5*len*dir.x, pos[1]+0.5*len*dir.y, pos[2]+0.5*len*dir.z),
+        quat,
+        new THREE.Vector3(1, len, 1)
+      );
+      shaftMesh.setMatrixAt(i, sm);
+      tm.compose(
+        new THREE.Vector3(pos[0]+len*dir.x, pos[1]+len*dir.y, pos[2]+len*dir.z),
+        quat,
+        new THREE.Vector3(1, 1, 1)
+      );
+      tipMesh.setMatrixAt(i, tm);
+      const c = interpStops(mag / maxMag, VIRIDIS);
+      tmpC.setRGB(c[0], c[1], c[2]);
+      shaftMesh.setColorAt(i, tmpC);
+      tipMesh.setColorAt(i, tmpC);
+    }
+    shaftMesh.instanceMatrix.needsUpdate = true;
+    tipMesh.instanceMatrix.needsUpdate = true;
+    if (shaftMesh.instanceColor) shaftMesh.instanceColor.needsUpdate = true;
+    if (tipMesh.instanceColor) tipMesh.instanceColor.needsUpdate = true;
+    scene.add(shaftMesh, tipMesh);
+  }
+}
+
 // --- Detect bonds (always — needed for polyhedra even when bonds hidden) ---
 const bondParams = new Map();
 const uniqueEls = [...new Set(species)].sort();
@@ -1325,6 +1476,17 @@ window.__renderDone = true;
 // ---------------------------------------------------------------------------
 
 async function render(opts: RenderOptions) {
+  // 17.4.2 pre-flight: --compare-to-phase requires --phase, and is incompatible
+  // with --all-frames in v0.17.4 (per-frame comparison deferred).
+  if (opts.compareToPhase && opts.phases.length === 0) {
+    console.error('Error: --compare-to-phase requires at least one --phase <file>');
+    process.exit(1);
+  }
+  if (opts.compareToPhase && opts.allFrames) {
+    console.error('Error: --compare-to-phase + --all-frames not supported in v0.17.4');
+    process.exit(1);
+  }
+
   const browser = await puppeteer.launch({
     headless: true,
     args: [
@@ -1368,6 +1530,20 @@ async function render(opts: RenderOptions) {
         const base64 = dataUrl.replace(/^data:image\/png;base64,/, '');
         fs.writeFileSync(outputPath, Buffer.from(base64, 'base64'));
         console.log(`Saved: ${outputPath}`);
+        // 17.4.2: extract comparison stats stashed on window by inline HTML.
+        if (opts.compareToPhase) {
+          const stats = await page.evaluate(() => (window as any).__comparisonStats);
+          if (stats) {
+            const fmt = (x: number) => x.toFixed(3);
+            console.log(
+              `[comparison] RMSD: ${fmt(stats.rmsd)} Å ` +
+              `(matched ${stats.matchedCount}, unmatched ${stats.unmatchedCount}, ` +
+              `max ${fmt(stats.maxDisplacement)} Å, ` +
+              `mean ${fmt(stats.meanDisplacement)} Å, ` +
+              `p95 ${fmt(stats.p95Displacement)} Å)`
+            );
+          }
+        }
         return true;
       }
       console.error('Error: could not extract canvas data.');
@@ -1428,7 +1604,7 @@ async function render(opts: RenderOptions) {
           const padded = String(i + 1).padStart(padWidth, '0');
           const outPath = opts.output.replace(/\.png$/i, `_${padded}.png`);
           const structureJSON = JSON.stringify(traj.frames[i]);
-          const html = generateStructureHTML(opts, structureJSON, volumetricJSON, phasesJSON);
+          const html = generateStructureHTML(opts, structureJSON, volumetricJSON, phasesJSON, opts.compareToPhase);
           const ok = await renderHtmlToPng(html, outPath);
           if (!ok) { allOk = false; break; }
         }
@@ -1443,7 +1619,7 @@ async function render(opts: RenderOptions) {
           }
         }
         const structureJSON = JSON.stringify(traj.frames[Math.max(0, Math.min(frameIdx, traj.frames.length - 1))]);
-        const html = generateStructureHTML(opts, structureJSON, volumetricJSON, phasesJSON);
+        const html = generateStructureHTML(opts, structureJSON, volumetricJSON, phasesJSON, opts.compareToPhase);
         const ok = await renderHtmlToPng(html, opts.output);
         if (!ok) process.exitCode = 1;
       }

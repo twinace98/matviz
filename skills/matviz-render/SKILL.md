@@ -77,6 +77,7 @@ before reporting completion. Silent success is not success.
 | `--frame` | `N` (0-indexed) | `0` | Trajectory file (XDATCAR / AXSF / extended XYZ): render the Nth frame. Out-of-range clamps with warn. Ignored for single-frame files. |
 | `--all-frames` | flag | off | Render every trajectory frame as a PNG sequence: `<output>_NNNN.png` (1-indexed, 4-digit zero-padded; auto-expands beyond 9999 frames). Conflicts with `--frame` (all wins + warn). |
 | `--phase` | `<file>` | — | Add a secondary structure as a transparent overlay (default offset (0,0,0), opacity 0.5). Repeatable: `--phase a.cif --phase b.cif` accumulates. Single-frame parse (first frame for trajectory phase files). |
+| `--compare-to-phase` | flag | off | Compute NN displacement from the primary structure to the **first** `--phase`, render Viridis-coloured arrows, and print a one-line `[comparison] RMSD: X.XXX Å (matched N, unmatched M, max …, mean …, p95 …)` summary to stdout. Same-species NN matching; PBC-aware when the two lattices are equal. Requires `--phase`; incompatible with `--all-frames`. |
 | `--test` | flag | — | Render a test scene (red sphere) for smoke-testing |
 | `-h, --help` | flag | — | Print usage |
 
@@ -210,6 +211,24 @@ Multi-phase comparison stacks: `--phase a.cif --phase b.cif`. Useful for
 relaxed vs unrelaxed, DFT functional comparison, or polymorph overlay
 visualization. Combine with `--compare-to-phase` to add NN displacement
 arrows + RMSD numerical summary in stdout.
+
+**Compare two structures (NN displacement arrows + RMSD summary)**
+```bash
+node {{MATVIZ_DIR}}/dist/render.js relaxed.cif \
+  -o compare.png --phase unrelaxed.cif --compare-to-phase
+# stdout:
+#   Saved: compare.png
+#   [comparison] RMSD: 0.127 Å (matched 8, unmatched 0, max 0.226 Å, mean 0.078 Å, p95 0.226 Å)
+```
+For each primary atom, the nearest same-species atom in the first
+`--phase` is matched (greedy, no reuse). Displacement arrows are coloured
+by Viridis (low → dark purple, high → yellow) and the per-pair magnitudes
+feed RMSD / max / mean / p95 reported on stdout in a single
+`[comparison]` line — easy to grep from build logs. Matching is
+PBC-aware when both lattices are identical (minimum-image convention);
+otherwise straight Euclidean. Atoms without a same-species partner count
+as `unmatched`. Requires `--phase`; `--all-frames` is rejected (per-frame
+comparison is deferred to a future v0.17.x).
 
 **Wulff construction (Au cuboctahedron)**
 ```bash

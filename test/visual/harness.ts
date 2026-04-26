@@ -63,6 +63,7 @@ interface SceneConfig {
   wulff?: string;
   frame?: number;
   phases?: string[];
+  compareToPhase?: boolean;
 }
 
 interface FixtureResult {
@@ -129,6 +130,7 @@ function buildArgs(cfg: SceneConfig, outPath: string): string[] {
       args.push('--phase', path.resolve(cfg.fixtureDir, p));
     }
   }
+  if (cfg.compareToPhase) args.push('--compare-to-phase');
   return args;
 }
 

@@ -323,6 +323,7 @@ Common options:
 | `--frame <N>` | Trajectory files: render Nth frame (0-indexed). Out-of-range clamps with warn. Ignored for single-frame inputs. |
 | `--all-frames` | Render every trajectory frame as `<output>_NNNN.png` sequence (1-indexed, 4-digit padded). Combines with `ffmpeg` for gif/mp4 (see SKILL.md). Conflicts with `--frame` (all wins + warn). |
 | `--phase <file>` | Add a secondary structure as transparent overlay (default offset (0,0,0), opacity 0.5). Repeatable. Single-frame parse for trajectory phase files. |
+| `--compare-to-phase` | NN displacement arrows + `[comparison] RMSD: …` stdout summary against the first `--phase`. PBC-aware on identical lattices. Requires `--phase`; incompatible with `--all-frames`. |
 | `--no-bonds` / `--no-boundary` / `--no-cell` | Disable bonds / boundary atoms / cell wireframe |
 
 Run `node dist/render.js --help` for the full list.
