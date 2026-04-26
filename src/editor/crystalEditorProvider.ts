@@ -23,6 +23,7 @@ const ICON = {
   moon:       SVG_OPEN + '<path d="M13 9.5A5.5 5.5 0 0 1 6.5 3a5.5 5.5 0 1 0 6.5 6.5z"/></svg>',
   sun:        SVG_OPEN + '<circle cx="8" cy="8" r="2.8"/><path d="M8 2v1.5M8 12.5V14M2 8h1.5M12.5 8H14M3.75 3.75l1.1 1.1M11.15 11.15l1.1 1.1M3.75 12.25l1.1-1.1M11.15 4.85l1.1-1.1"/></svg>',
   chevL:      SVG_OPEN + '<path d="M10 3L5 8l5 5"/></svg>',
+  close:      SVG_OPEN + '<path d="M4 4l8 8M12 4l-8 8"/></svg>',
   navigate:   SVG_OPEN + '<path d="M8 2l5 6-5 6-5-6z"/><circle cx="8" cy="8" r="1.2" fill="currentColor" stroke="none"/></svg>',
   measure:    SVG_OPEN + '<path d="M2 8h12"/><path d="M5 5l-3 3 3 3"/><path d="M11 5l3 3-3 3"/></svg>',
   help:       SVG_OPEN + '<circle cx="8" cy="8" r="6"/><path d="M6.2 6a1.8 1.8 0 1 1 2.6 1.6c-.5.3-.8.7-.8 1.3"/><circle cx="8" cy="11.5" r=".5" fill="currentColor" stroke="none"/></svg>',
@@ -214,33 +215,40 @@ export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvide
     <button id="help-btn" class="mode-btn" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">${ICON.help}</button>
   </div>
 
-  <!-- Shortcuts help overlay -->
+  <!-- Shortcuts help overlay (V2 — 4-column grid card) -->
   <div id="help-overlay" class="hidden" role="dialog" aria-modal="true" aria-labelledby="help-title">
     <div id="help-card">
       <div id="help-head">
-        <span id="help-title">Keyboard Shortcuts</span>
-        <button id="help-close" class="bar-btn" title="Close (Esc)" aria-label="Close">&#x2715;</button>
+        <span id="help-title">Shortcuts<span class="help-sub">press <kbd>?</kbd> anytime</span></span>
+        <button id="help-close" class="bar-btn" title="Close (Esc)" aria-label="Close">${ICON.close}</button>
       </div>
       <div id="help-body">
         <div class="help-col">
           <div class="help-h">Rotation</div>
-          <div class="help-row"><kbd>&#x2190;</kbd><kbd>&#x2193;</kbd><kbd>&#x2191;</kbd><kbd>&#x2192;</kbd><span>Rotate by step</span></div>
-          <div class="help-row"><kbd>h</kbd><kbd>j</kbd><kbd>k</kbd><kbd>l</kbd><span>Rotate (vim keys)</span></div>
-          <div class="help-row"><kbd>[</kbd> / <kbd>]</kbd><span>Rotate CCW / CW</span></div>
-          <div class="help-row"><kbd>Shift</kbd>+key<span>Rotate by 1&deg; (arrows / hjkl / [ ])</span></div>
-          <div class="help-h">Zoom</div>
-          <div class="help-row"><kbd>+</kbd> / <kbd>=</kbd><span>Zoom in</span></div>
-          <div class="help-row"><kbd>&minus;</kbd><span>Zoom out</span></div>
-          <div class="help-row"><span>Mouse wheel</span><span>Zoom</span></div>
+          <div class="help-row"><span class="help-keys"><kbd>&#x2190;</kbd><kbd>&#x2193;</kbd><kbd>&#x2191;</kbd><kbd>&#x2192;</kbd></span><span>Rotate by step</span></div>
+          <div class="help-row"><span class="help-keys"><kbd>h</kbd><kbd>j</kbd><kbd>k</kbd><kbd>l</kbd></span><span>Vim rotate</span></div>
+          <div class="help-row"><span class="help-keys"><kbd>[</kbd><kbd>]</kbd></span><span>Rotate CCW / CW</span></div>
+          <div class="help-row"><span class="help-keys"><kbd>&#x21E7;</kbd>+key</span><span>1&deg; fine step</span></div>
+          <div class="help-row"><span class="help-keys"><kbd>+</kbd><kbd>&minus;</kbd></span><span>Zoom in / out</span></div>
         </div>
         <div class="help-col">
           <div class="help-h">Navigation</div>
-          <div class="help-row"><span>Left drag</span><span>Rotate</span></div>
-          <div class="help-row"><span>Right / Mid drag</span><span>Pan</span></div>
-          <div class="help-row"><span>Click atom</span><span>Select / info</span></div>
-          <div class="help-h">Modes &amp; Misc</div>
-          <div class="help-row"><kbd>Esc</kbd><span>Close help / clear selection / measurement</span></div>
-          <div class="help-row"><kbd>?</kbd><span>This help</span></div>
+          <div class="help-row"><span class="help-keys">Left drag</span><span>Rotate</span></div>
+          <div class="help-row"><span class="help-keys">Right drag</span><span>Pan</span></div>
+          <div class="help-row"><span class="help-keys">Wheel</span><span>Zoom</span></div>
+          <div class="help-row"><span class="help-keys">Click atom</span><span>Select / info</span></div>
+        </div>
+        <div class="help-col">
+          <div class="help-h">Style</div>
+          <div class="help-row"><span class="help-keys"><kbd>1</kbd></span><span>Ball &amp; Stick</span></div>
+          <div class="help-row"><span class="help-keys"><kbd>2</kbd></span><span>Space-filling</span></div>
+          <div class="help-row"><span class="help-keys"><kbd>3</kbd></span><span>Stick</span></div>
+          <div class="help-row"><span class="help-keys"><kbd>4</kbd></span><span>Wireframe</span></div>
+        </div>
+        <div class="help-col">
+          <div class="help-h">Mode</div>
+          <div class="help-row"><span class="help-keys"><kbd>?</kbd></span><span>This help</span></div>
+          <div class="help-row"><span class="help-keys"><kbd>Esc</kbd></span><span>Clear selection / close help</span></div>
         </div>
       </div>
     </div>

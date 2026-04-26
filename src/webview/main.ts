@@ -590,6 +590,25 @@ function setupToggleSwitches(root: ParentNode = document) {
 }
 setupToggleSwitches();
 
+// ----- Digit shortcuts 1-4 → display style (V2 Feature 18.7) ---------------
+// Skip when an input/textarea/contenteditable is focused so digit entry in
+// step inputs and supercell values still works.
+const STYLE_KEYS: Record<string, DisplayStyle> = {
+  '1': 'ball-and-stick',
+  '2': 'space-filling',
+  '3': 'stick',
+  '4': 'wireframe',
+};
+window.addEventListener('keydown', (e) => {
+  if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+  const target = e.target as HTMLElement | null;
+  if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
+  const s = STYLE_KEYS[e.key];
+  if (!s) return;
+  e.preventDefault();
+  applyDisplayStyle(s, { dispatch: true });
+});
+
 // Visibility checkboxes
 const bondsCheck = document.getElementById('bonds-check') as HTMLInputElement;
 const labelsCheck = document.getElementById('labels-check') as HTMLInputElement;

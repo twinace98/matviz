@@ -710,80 +710,109 @@ body.panel-open #info-pill {
 }
 
 /* ===== Help overlay ===== */
+/* ===== Help overlay (V2 — 4-column grid, glass-3 card) ===== */
 #help-overlay {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
-  z-index: 100;
+  background: rgba(0, 0, 0, 0.55);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  z-index: 200;
   display: flex;
   align-items: center;
   justify-content: center;
 }
-
 #help-overlay.hidden { display: none; }
 
 #help-card {
-  background: var(--vscode-editorWidget-background, #252526);
-  border: 1px solid var(--vscode-editorWidget-border, #444);
-  border-radius: 8px;
-  padding: 16px 20px;
-  min-width: 420px;
-  max-width: 720px;
-  color: var(--vscode-editor-foreground, #ccc);
+  width: 720px;
+  max-width: 92%;
+  background: var(--v2-glass-3);
+  -webkit-backdrop-filter: blur(var(--v2-blur));
+  backdrop-filter: blur(var(--v2-blur));
+  border: 1px solid var(--v2-line-strong);
+  border-radius: var(--v2-r-lg);
+  padding: 18px 22px 22px;
+  color: var(--v2-fg-1);
   font-family: var(--vscode-font-family, monospace);
   font-size: 14px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--v2-sh-3);
 }
 
 #help-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid var(--vscode-editorWidget-border, #444);
-  padding-bottom: 8px;
-  margin-bottom: 12px;
-  font-size: 16px;
-  font-weight: bold;
+  border-bottom: 1px solid var(--v2-line);
+  padding-bottom: 12px;
+  margin-bottom: 14px;
+}
+#help-title {
+  font-size: var(--v2-t-title);
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: 0.2px;
+}
+.help-sub {
+  font-size: var(--v2-t-micro);
+  color: var(--v2-fg-3);
+  margin-left: 10px;
+  font-weight: 400;
 }
 
 #help-body {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
+  gap: 16px 24px;
+}
+@media (max-width: 720px) {
+  #help-body { grid-template-columns: 1fr 1fr; }
 }
 
 .help-col { display: flex; flex-direction: column; gap: 4px; }
 
 .help-h {
-  font-size: 12px;
+  font-size: var(--v2-t-caps);
   text-transform: uppercase;
-  color: var(--vscode-descriptionForeground, #888);
-  margin-top: 6px;
-  letter-spacing: 0.5px;
+  color: var(--v2-fg-3);
+  letter-spacing: 1.1px;
+  font-weight: 600;
+  margin-bottom: 4px;
 }
 
 .help-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 13px;
+  gap: 10px;
+  font-size: var(--v2-t-body);
+  padding: 3px 0;
 }
-
+.help-keys {
+  display: inline-flex;
+  gap: 3px;
+  min-width: 76px;
+  flex-shrink: 0;
+  color: var(--v2-fg-2);
+  font-size: var(--v2-t-micro);
+}
 .help-row > span:last-child {
   flex: 1;
-  color: var(--vscode-descriptionForeground, #aaa);
+  color: var(--v2-fg-2);
 }
 
-.help-row kbd {
+#help-card kbd {
   display: inline-block;
-  min-width: 22px;
+  min-width: 18px;
   padding: 1px 5px;
-  background: var(--vscode-input-background, #3c3c3c);
-  border: 1px solid var(--vscode-input-border, #555);
+  background: var(--v2-surf-0);
+  border: 1px solid var(--v2-line-strong);
   border-radius: 3px;
   font-family: inherit;
-  font-size: 12px;
+  font-size: var(--v2-t-caps);
+  color: var(--v2-fg-1);
+  line-height: 14px;
   text-align: center;
+  box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.25);
 }
 
 /* ===== Tooltip ===== */
