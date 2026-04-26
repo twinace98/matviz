@@ -301,17 +301,11 @@ export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvide
     </div>
   </div>
 
-  <!-- Left sidebar controls -->
+  <!-- Left sidebar controls (V2 floating glass; offset/overlay toggle removed — overlay-only) -->
   <div id="side-panel">
     <div id="panel-resize"></div>
+    <div class="panel-scroll">
     <div id="info"></div>
-    <div class="panel-section">
-      <div class="panel-label" title="Whether the side panel pushes the canvas aside (Offset) or floats above it (Overlay)">Layout</div>
-      <div class="layout-toggle-row">
-        <button id="layout-offset-btn" class="panel-btn active" title="Offset: canvas starts right of the panel — no atom is ever hidden behind it">Offset</button>
-        <button id="layout-overlay-btn" class="panel-btn" title="Overlay: panel floats above the canvas (classic mode)">Overlay</button>
-      </div>
-    </div>
     <div class="panel-section">
       <div class="panel-label">Style</div>
       <select id="display-style" class="panel-select" title="Rendering style for atoms and bonds">
@@ -427,6 +421,7 @@ export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvide
         <label class="toggle" title="Render atoms and bonds as shader-computed impostors on camera-facing quads (faster, always smooth). Disable to use tessellated sphere/cylinder geometry."><input type="checkbox" id="impostor-check" checked><span>Use impostor rendering (faster)</span></label>
       </div>
     </div>
+    </div><!-- /.panel-scroll -->
   </div>
 
   <div id="tooltip" class="hidden"></div>

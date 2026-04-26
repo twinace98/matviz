@@ -30,49 +30,29 @@ if (topBar) {
 
 const renderer = new CrystalRenderer(canvas);
 
-// --- Side panel toggle ---
+// --- Side panel toggle (V2 is overlay-only; offset/overlay toggle removed) ---
 const panelToggle = document.getElementById('panel-toggle') as HTMLButtonElement;
 const sidePanel = document.getElementById('side-panel') as HTMLDivElement;
-
-// --- Layout mode (offset vs overlay) ---
-type LayoutMode = 'offset' | 'overlay';
-const layoutOffsetBtn = document.getElementById('layout-offset-btn') as HTMLButtonElement | null;
-const layoutOverlayBtn = document.getElementById('layout-overlay-btn') as HTMLButtonElement | null;
 const MODE_BAR_WIDTH = 40;
 
-function updateLayoutOffsetVar() {
-  // Offset from viewport-left to the canvas' left edge when layout-offset is active.
-  const collapsed = sidePanel.classList.contains('collapsed');
-  const panelWidth = collapsed ? 0 : sidePanel.getBoundingClientRect().width;
-  const offset = MODE_BAR_WIDTH + panelWidth;
-  document.documentElement.style.setProperty('--layout-offset-left', `${offset}px`);
-}
+// SVG glyphs for the panel-toggle button (matches the unified icon set in
+// crystalEditorProvider.ts; chevL = panel open, chevR = panel collapsed).
+const SVG_CHEV_L = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3L5 8l5 5"/></svg>';
+const SVG_CHEV_R = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3l5 5-5 5"/></svg>';
 
-function applyLayoutMode(mode: LayoutMode) {
-  document.body.classList.toggle('layout-offset', mode === 'offset');
-  layoutOffsetBtn?.classList.toggle('active', mode === 'offset');
-  layoutOverlayBtn?.classList.toggle('active', mode === 'overlay');
-  updateLayoutOffsetVar();
+// `panel-open` body class drives layout that depends on whether the side
+// panel is visible (e.g. info-pill horizontal offset in Feature 18.6d).
+function applyPanelOpenClass() {
+  document.body.classList.toggle('panel-open', !sidePanel.classList.contains('collapsed'));
 }
-
-// Default offset per v0.14 decision; overlay path preserved and toggle-reachable.
-let layoutMode: LayoutMode = 'offset';
-function setLayoutMode(mode: LayoutMode) {
-  layoutMode = mode;
-  applyLayoutMode(mode);
-  debouncedSave();
-}
-applyLayoutMode('offset');
-
-layoutOffsetBtn?.addEventListener('click', () => setLayoutMode('offset'));
-layoutOverlayBtn?.addEventListener('click', () => setLayoutMode('overlay'));
+applyPanelOpenClass();
 
 if (panelToggle && sidePanel) {
   panelToggle.addEventListener('click', () => {
     const collapsed = sidePanel.classList.toggle('collapsed');
-    panelToggle.innerHTML = collapsed ? '&#x25B6;' : '&#x25C0;';
+    panelToggle.innerHTML = collapsed ? SVG_CHEV_R : SVG_CHEV_L;
     panelToggle.title = collapsed ? 'Show side panel' : 'Hide side panel';
-    updateLayoutOffsetVar();
+    applyPanelOpenClass();
     debouncedSave();
   });
 }
@@ -90,9 +70,10 @@ if (panelResize && sidePanel) {
   });
   window.addEventListener('pointermove', (e) => {
     if (!resizing) return;
-    const newWidth = Math.max(140, Math.min(400, e.clientX - MODE_BAR_WIDTH));
+    // Panel sits at left = MODE_BAR_WIDTH + 12px gap (V2 floating spec); the
+    // pointer-x maps to the panel's right edge → width = pointer-x - that gap.
+    const newWidth = Math.max(180, Math.min(420, e.clientX - MODE_BAR_WIDTH - 12));
     sidePanel.style.width = newWidth + 'px';
-    updateLayoutOffsetVar();
   });
   window.addEventListener('pointerup', () => {
     if (resizing) debouncedSave();
@@ -683,8 +664,11 @@ new MutationObserver(() => renderer.updateTheme())
   .observe(document.body, { attributes: true, attributeFilter: ['class', 'data-vscode-theme-kind'] });
 
 // --- State persistence ---
+// `layoutMode` is retained in the type union for forward-compatibility:
+// older saved state may still carry it; we read it but no longer act on it
+// (V2 is overlay-only as of v0.18.0).
 type PersistedState = ReturnType<typeof renderer.getState> & {
-  layoutMode?: LayoutMode;
+  layoutMode?: 'offset' | 'overlay';
   panelCollapsed?: boolean;
   panelWidth?: number;
   stepAngle?: number;
@@ -692,7 +676,6 @@ type PersistedState = ReturnType<typeof renderer.getState> & {
 };
 function saveState() {
   const s = renderer.getState() as PersistedState;
-  s.layoutMode = layoutMode;
   s.panelCollapsed = sidePanel.classList.contains('collapsed');
   s.panelWidth = sidePanel.getBoundingClientRect().width;
   s.stepAngle = parseFloat(stepAngleInput?.value) || 15;
@@ -713,18 +696,14 @@ paletteBtn?.addEventListener('click', debouncedSave);
 const savedState = vscode.getState() as PersistedState | null;
 if (savedState && savedState.schemaVersion === 1) {
   renderer.restoreState(savedState);
-  if (savedState.layoutMode === 'offset' || savedState.layoutMode === 'overlay') {
-    layoutMode = savedState.layoutMode;
-    applyLayoutMode(layoutMode);
-  }
+  // savedState.layoutMode silently ignored (V2 is overlay-only).
   if (savedState.panelCollapsed) {
     sidePanel.classList.add('collapsed');
-    if (panelToggle) { panelToggle.innerHTML = '&#x25B6;'; panelToggle.title = 'Show side panel'; }
-    updateLayoutOffsetVar();
+    if (panelToggle) { panelToggle.innerHTML = SVG_CHEV_R; panelToggle.title = 'Show side panel'; }
+    applyPanelOpenClass();
   }
-  if (typeof savedState.panelWidth === 'number' && savedState.panelWidth >= 140) {
+  if (typeof savedState.panelWidth === 'number' && savedState.panelWidth >= 180) {
     sidePanel.style.width = savedState.panelWidth + 'px';
-    updateLayoutOffsetVar();
   }
   if (scA && savedState.supercell) {
     scA.value = String(savedState.supercell[0]);
