@@ -143,7 +143,7 @@ Two fix commits already landed on `main` after v0.15.0; version bump pending use
 
 ---
 
-## v0.16 — Extended crystallography
+## v0.16 — Extended crystallography ✅ shipped 2026-04-22 (in v0.17.3 bundled release 2026-04-23)
 
 **Goal**: Display advanced crystallographic properties.
 
@@ -168,7 +168,12 @@ Two fix commits already landed on `main` after v0.15.0; version bump pending use
 
 ---
 
-## v0.17 — Animation & multi-structure
+## v0.17 — Animation & multi-structure ✅ shipped 2026-04-23 (v0.17.0 + v0.17.1 + v0.17.2 + v0.17.3 bundled)
+
+**v0.17.0** (Animation): 17.1.0 trajectory bridge + 17.1.1 AXSF + 17.1.2 XDATCAR (NVE+NPT) + 17.1.3 extended XYZ + 17.1.4 playback UI + 17.1.5 bond toggle + 17.2 multi-phase overlay. 17.3 (comparison) pre-split.
+**v0.17.1** (Comparison): 17.3.0 NN matching + 17.3.1 displacement renderer/UI.
+**v0.17.2** (UX/correctness patch): unified Phases+Comparison UI + playback UX polish + PBC-aware NN + RMSD summary panel.
+**v0.17.3** (Trajectory CLI): `--frame N` + `--all-frames` for matviz-render skill MD-animation workflow.
 
 **Goal**: Support dynamic structures and comparisons.
 
