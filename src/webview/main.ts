@@ -456,17 +456,66 @@ if (cameraBtn) {
   });
 }
 
-// Palette toggle (top bar icon)
+// Palette toggle (top bar icon). Inline SVGs mirror the unified icon set in
+// crystalEditorProvider.ts — duplicated (small, two strings) since the HTML
+// template and webview JS run in different bundles.
+const SVG_MOON = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 9.5A5.5 5.5 0 0 1 6.5 3a5.5 5.5 0 1 0 6.5 6.5z"/></svg>';
+const SVG_SUN  = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="2.8"/><path d="M8 2v1.5M8 12.5V14M2 8h1.5M12.5 8H14M3.75 3.75l1.1 1.1M11.15 11.15l1.1 1.1M3.75 12.25l1.1-1.1M11.15 4.85l1.1-1.1"/></svg>';
 const paletteBtn = document.getElementById('palette-toggle') as HTMLButtonElement;
 if (paletteBtn) {
   paletteBtn.addEventListener('click', () => {
     const next = renderer.getColorPalette() === 'dark' ? 'light' : 'dark';
     renderer.setColorPalette(next);
-    paletteBtn.textContent = next === 'dark' ? '\u263E' : '\u2600';
+    paletteBtn.innerHTML = next === 'dark' ? SVG_MOON : SVG_SUN;
     paletteBtn.title = next === 'dark' ? 'Color palette: Dark' : 'Color palette: Light';
     paletteBtn.classList.toggle('active', next === 'dark');
   });
 }
+
+// Numeric stepper (full-height ▲/▼ + ArrowUp/Down keys) for step-angle,
+// step-zoom, sc-a/b/c. Inputs use type="text" + inputmode="numeric" to
+// avoid native browser spinners; this helper restores keyboard/button
+// increment and dispatches a synthetic 'change' so existing listeners fire.
+function setupNumberStepper(input: HTMLInputElement | null) {
+  if (!input) return;
+  const wrap = input.closest('.num-wrap') as HTMLElement | null;
+  if (!wrap) return;
+  const min = Number(wrap.dataset.min ?? '1');
+  const max = Number(wrap.dataset.max ?? '99');
+  const clamp = (n: number) => Math.max(min, Math.min(max, n));
+  const apply = (delta: number) => {
+    const cur = parseInt(input.value, 10);
+    const base = Number.isFinite(cur) ? cur : min;
+    const next = clamp(base + delta);
+    if (String(next) === input.value) return;
+    input.value = String(next);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+  wrap.querySelector('.num-step.up')?.addEventListener('click', () => apply(+1));
+  wrap.querySelector('.num-step.dn')?.addEventListener('click', () => apply(-1));
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowUp')        { e.preventDefault(); apply(+1); }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); apply(-1); }
+  });
+  // Permit transient invalid states mid-edit; clamp on blur.
+  input.addEventListener('blur', () => {
+    const n = parseInt(input.value, 10);
+    if (!Number.isFinite(n)) {
+      input.value = String(min);
+    } else {
+      const c = clamp(n);
+      if (String(c) !== input.value) input.value = String(c);
+    }
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+}
+// Supercell inputs (sc-a/b/c) intentionally left as native type="number"
+// here — Feature 18.6 will replace them with V2's `− N +` horizontal stepper
+// (no upper bound), which has different markup than this generic .num-wrap.
+['step-angle', 'step-zoom'].forEach((id) => {
+  setupNumberStepper(document.getElementById(id) as HTMLInputElement | null);
+});
 
 // Visibility checkboxes
 const bondsCheck = document.getElementById('bonds-check') as HTMLInputElement;
@@ -689,7 +738,7 @@ if (savedState && savedState.schemaVersion === 1) {
     cameraBtn.classList.toggle('active', savedState.cameraMode === 'orthographic');
   }
   if (paletteBtn && savedState.colorPalette) {
-    paletteBtn.textContent = savedState.colorPalette === 'dark' ? '\u263E' : '\u2600';
+    paletteBtn.innerHTML = savedState.colorPalette === 'dark' ? SVG_MOON : SVG_SUN;
     paletteBtn.title = savedState.colorPalette === 'dark' ? 'Color palette: Dark' : 'Color palette: Light';
     paletteBtn.classList.toggle('active', savedState.colorPalette === 'dark');
   }

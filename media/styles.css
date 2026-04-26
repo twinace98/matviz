@@ -197,6 +197,82 @@ body.layout-offset #canvas {
   text-align: center;
 }
 
+/* ===== Numeric stepper (full-height stacked ▲/▼; native spinners suppressed)
+   Wrapper acts as the bordered box; the input itself is borderless inside.
+   Used for step-angle, step-zoom, sc-a/b/c. ============================== */
+.num-wrap {
+  display: inline-flex;
+  align-items: stretch;
+  height: 28px;
+  background: var(--vscode-input-background, #3c3c3c);
+  border: 1px solid var(--vscode-input-border, #555);
+  border-radius: 3px;
+  overflow: hidden;
+  box-sizing: border-box;
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+.num-wrap:focus-within { border-color: var(--vscode-focusBorder, #007fd4); }
+.num-wrap .num-input {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  border: 0;
+  outline: 0;
+  color: var(--vscode-input-foreground, #ccc);
+  font-family: inherit;
+  font-size: 14px;
+  text-align: center;
+  padding: 0 2px 0 6px;
+  -moz-appearance: textfield;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.num-wrap .num-input::-webkit-outer-spin-button,
+.num-wrap .num-input::-webkit-inner-spin-button {
+  -webkit-appearance: none !important;
+  appearance: none !important;
+  margin: 0 !important;
+  display: none !important;
+}
+.num-steps {
+  display: flex;
+  flex-direction: column;
+  width: 16px;
+  border-left: 1px solid var(--vscode-input-border, #555);
+  flex-shrink: 0;
+}
+.num-step {
+  flex: 1 1 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  height: 50%;
+  min-height: 0;
+  color: var(--vscode-descriptionForeground, #888);
+  cursor: pointer;
+  font-family: inherit;
+}
+.num-step:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(90, 93, 94, 0.31));
+  color: var(--vscode-editor-foreground, #ccc);
+}
+.num-step:active {
+  background: var(--vscode-toolbar-activeBackground, rgba(99, 102, 103, 0.5));
+  color: var(--vscode-editor-foreground, #ccc);
+}
+.num-step.up { border-bottom: 1px solid var(--vscode-input-border, #555); }
+.num-step svg { display: block; }
+
+/* SVG icons inside top-bar / mode-bar buttons render block-level so the
+   button's flex centering controls layout (avoids inline-baseline drift). */
+.bar-btn svg, .mode-btn svg { display: block; }
+
 /* ===== Left side panel ===== */
 #side-panel {
   position: absolute;

@@ -4,6 +4,33 @@ import { parseStructureFileTraj } from '../parsers/index';
 import { exportCif, exportPoscar } from '../parsers/exporters';
 import path from 'path';
 
+// Unified inline-SVG icon set (16×16 viewBox, 1.5px stroke, currentColor, no fill, round caps).
+// Defined as raw strings so the HTML template literal can splice them directly.
+const SVG_OPEN = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">';
+const ICON = {
+  home:       SVG_OPEN + '<path d="M2 7l6-5 6 5"/><path d="M3.5 6.5V13h9V6.5"/></svg>',
+  arrowUp:    SVG_OPEN + '<path d="M8 13V3"/><path d="M4 7l4-4 4 4"/></svg>',
+  arrowDown:  SVG_OPEN + '<path d="M8 3v10"/><path d="M4 9l4 4 4-4"/></svg>',
+  arrowLeft:  SVG_OPEN + '<path d="M13 8H3"/><path d="M7 4L3 8l4 4"/></svg>',
+  arrowRight: SVG_OPEN + '<path d="M3 8h10"/><path d="M9 4l4 4-4 4"/></svg>',
+  rotCCW:     SVG_OPEN + '<path d="M13 8a5 5 0 1 1-1.46-3.54"/><path d="M13 3v3h-3"/></svg>',
+  rotCW:      SVG_OPEN + '<path d="M3 8a5 5 0 1 0 1.46-3.54"/><path d="M3 3v3h3"/></svg>',
+  zoomIn:     SVG_OPEN + '<circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/><path d="M5 7h4M7 5v4"/></svg>',
+  zoomOut:    SVG_OPEN + '<circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/><path d="M5 7h4"/></svg>',
+  fit:        SVG_OPEN + '<path d="M2 6V2h4"/><path d="M14 6V2h-4"/><path d="M2 10v4h4"/><path d="M14 10v4h-4"/></svg>',
+  camera:     SVG_OPEN + '<path d="M2 5h2.5l1-1.5h5l1 1.5H14v8H2z"/><circle cx="8" cy="9" r="2.5"/></svg>',
+  doc:        SVG_OPEN + '<path d="M4 2h6l3 3v9H4z"/><path d="M10 2v3h3"/><path d="M6 8h5M6 11h5"/></svg>',
+  moon:       SVG_OPEN + '<path d="M13 9.5A5.5 5.5 0 0 1 6.5 3a5.5 5.5 0 1 0 6.5 6.5z"/></svg>',
+  sun:        SVG_OPEN + '<circle cx="8" cy="8" r="2.8"/><path d="M8 2v1.5M8 12.5V14M2 8h1.5M12.5 8H14M3.75 3.75l1.1 1.1M11.15 11.15l1.1 1.1M3.75 12.25l1.1-1.1M11.15 4.85l1.1-1.1"/></svg>',
+  chevL:      SVG_OPEN + '<path d="M10 3L5 8l5 5"/></svg>',
+  navigate:   SVG_OPEN + '<path d="M8 2l5 6-5 6-5-6z"/><circle cx="8" cy="8" r="1.2" fill="currentColor" stroke="none"/></svg>',
+  measure:    SVG_OPEN + '<path d="M2 8h12"/><path d="M5 5l-3 3 3 3"/><path d="M11 5l3 3-3 3"/></svg>',
+  help:       SVG_OPEN + '<circle cx="8" cy="8" r="6"/><path d="M6.2 6a1.8 1.8 0 1 1 2.6 1.6c-.5.3-.8.7-.8 1.3"/><circle cx="8" cy="11.5" r=".5" fill="currentColor" stroke="none"/></svg>',
+  // Small chevrons used inside the numeric stepper (10×6).
+  chevUpSmall: '<svg width="10" height="6" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 4.5L5 1.5l3.5 3"/></svg>',
+  chevDnSmall: '<svg width="10" height="6" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 1.5L5 4.5l3.5-3"/></svg>',
+};
+
 class CrystalDocument implements vscode.CustomDocument {
   constructor(
     public readonly uri: vscode.Uri,
@@ -180,11 +207,11 @@ export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvide
 
   <!-- Mode toolbar (far left) -->
   <div id="mode-bar">
-    <button id="mode-navigate" class="mode-btn active" title="Navigate (click atom for info)">&#x25C7;</button>
-    <button id="mode-measure" class="mode-btn" title="Measure (click 2/3/4 atoms)">&#x2194;</button>
+    <button id="mode-navigate" class="mode-btn active" title="Navigate (click atom for info)" aria-label="Navigate">${ICON.navigate}</button>
+    <button id="mode-measure" class="mode-btn" title="Measure (click 2/3/4 atoms)" aria-label="Measure">${ICON.measure}</button>
     <div class="mode-sep"></div>
-    <button id="panel-toggle" class="mode-btn" title="Toggle side panel">&#x25C0;</button>
-    <button id="help-btn" class="mode-btn" title="Keyboard shortcuts (?)">?</button>
+    <button id="panel-toggle" class="mode-btn" title="Toggle side panel" aria-label="Toggle side panel">${ICON.chevL}</button>
+    <button id="help-btn" class="mode-btn" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">${ICON.help}</button>
   </div>
 
   <!-- Shortcuts help overlay -->
@@ -231,34 +258,46 @@ export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvide
     </div>
     <span class="bar-sep"></span>
     <div class="bar-group" title="Standard Orientation">
-      <button id="std-orient" class="bar-btn" title="Standard orientation (c-axis up, view from a*)">&#x2302;</button>
+      <button id="std-orient" class="bar-btn" title="Standard orientation (c-axis up, view from a*)" aria-label="Standard orientation">${ICON.home}</button>
     </div>
     <span class="bar-sep"></span>
     <div class="bar-group" title="Step Rotation">
-      <button id="rot-up" class="bar-btn" title="Rotate up">&#x2191;</button>
-      <button id="rot-down" class="bar-btn" title="Rotate down">&#x2193;</button>
-      <button id="rot-left" class="bar-btn" title="Rotate left">&#x2190;</button>
-      <button id="rot-right" class="bar-btn" title="Rotate right">&#x2192;</button>
-      <button id="rot-ccw" class="bar-btn" title="Rotate CCW">&#x21BA;</button>
-      <button id="rot-cw" class="bar-btn" title="Rotate CW">&#x21BB;</button>
+      <button id="rot-up" class="bar-btn" title="Rotate up" aria-label="Rotate up">${ICON.arrowUp}</button>
+      <button id="rot-down" class="bar-btn" title="Rotate down" aria-label="Rotate down">${ICON.arrowDown}</button>
+      <button id="rot-left" class="bar-btn" title="Rotate left" aria-label="Rotate left">${ICON.arrowLeft}</button>
+      <button id="rot-right" class="bar-btn" title="Rotate right" aria-label="Rotate right">${ICON.arrowRight}</button>
+      <button id="rot-ccw" class="bar-btn" title="Rotate CCW" aria-label="Rotate counter-clockwise">${ICON.rotCCW}</button>
+      <button id="rot-cw" class="bar-btn" title="Rotate CW" aria-label="Rotate clockwise">${ICON.rotCW}</button>
       <label class="bar-label" title="Rotation step (degrees) per arrow-button / arrow-key press">Step(&deg;):
-        <input type="number" id="step-angle" value="15" min="1" max="90" step="1" class="bar-input" title="Rotation step in degrees (1–90)">
+        <span class="num-wrap" data-min="1" data-max="90">
+          <input type="text" inputmode="numeric" id="step-angle" value="15" class="bar-input num-input" title="Rotation step in degrees (1–90)">
+          <span class="num-steps">
+            <button type="button" class="num-step up" tabindex="-1" aria-label="Increment">${ICON.chevUpSmall}</button>
+            <button type="button" class="num-step dn" tabindex="-1" aria-label="Decrement">${ICON.chevDnSmall}</button>
+          </span>
+        </span>
       </label>
     </div>
     <span class="bar-sep"></span>
     <div class="bar-group" title="Zoom">
-      <button id="zoom-in" class="bar-btn" title="Zoom in">+</button>
-      <button id="zoom-out" class="bar-btn" title="Zoom out">&minus;</button>
-      <button id="zoom-fit" class="bar-btn" title="Fit to view">&#x2922;</button>
+      <button id="zoom-in" class="bar-btn" title="Zoom in" aria-label="Zoom in">${ICON.zoomIn}</button>
+      <button id="zoom-out" class="bar-btn" title="Zoom out" aria-label="Zoom out">${ICON.zoomOut}</button>
+      <button id="zoom-fit" class="bar-btn" title="Fit to view" aria-label="Fit to view">${ICON.fit}</button>
       <label class="bar-label" title="Zoom step (percent) per zoom-button press or wheel tick">Step(%):
-        <input type="number" id="step-zoom" value="10" min="1" max="50" step="1" class="bar-input" title="Zoom step in percent (1–50)">
+        <span class="num-wrap" data-min="1" data-max="50">
+          <input type="text" inputmode="numeric" id="step-zoom" value="10" class="bar-input num-input" title="Zoom step in percent (1–50)">
+          <span class="num-steps">
+            <button type="button" class="num-step up" tabindex="-1" aria-label="Increment">${ICON.chevUpSmall}</button>
+            <button type="button" class="num-step dn" tabindex="-1" aria-label="Decrement">${ICON.chevDnSmall}</button>
+          </span>
+        </span>
       </label>
     </div>
     <span class="bar-sep"></span>
     <div class="bar-group">
-      <button id="screenshot-btn" class="bar-btn" title="Screenshot">&#x1F4F7;</button>
-      <button id="text-toggle" class="bar-btn" title="Toggle raw text view">&#x1F4C4;</button>
-      <button id="palette-toggle" class="bar-btn" title="Color palette: Dark">&#x263E;</button>
+      <button id="screenshot-btn" class="bar-btn" title="Screenshot" aria-label="Screenshot">${ICON.camera}</button>
+      <button id="text-toggle" class="bar-btn" title="Toggle raw text view" aria-label="Toggle raw text">${ICON.doc}</button>
+      <button id="palette-toggle" class="bar-btn" title="Color palette: Dark" aria-label="Color palette">${ICON.moon}</button>
     </div>
   </div>
 
