@@ -99,9 +99,17 @@ export class AxisIndicator {
 
   render(renderer: THREE.WebGLRenderer) {
     const size = this._size;
-    renderer.setViewport(4, 4, size, size);
+    // V2 floating UI: axis indicator anchored bottom-right (V1 was
+    // bottom-left). 16px margin matches V2 spec. setViewport/setScissor
+    // accept CSS pixels — Three.js multiplies by pixel ratio internally —
+    // so use canvas clientWidth (CSS px) for the right-aligned X.
+    const canvasW = renderer.domElement.clientWidth;
+    const margin = 16;
+    const x = canvasW - margin - size;
+    const y = margin;
+    renderer.setViewport(x, y, size, size);
     renderer.setScissorTest(true);
-    renderer.setScissor(4, 4, size, size);
+    renderer.setScissor(x, y, size, size);
     renderer.autoClear = false;
     renderer.clearDepth();
     renderer.render(this.scene, this.camera);

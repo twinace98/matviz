@@ -10,8 +10,21 @@ declare function acquireVsCodeApi(): {
 const vscode = acquireVsCodeApi();
 
 const canvas = document.getElementById('canvas') as HTMLCanvasElement;
-const info = document.getElementById('info') as HTMLDivElement;
 const tooltip = document.getElementById('tooltip') as HTMLDivElement;
+
+// V2 info pill (bottom-left). Canonical formula readout, always visible
+// (shifts horizontally to clear the side panel via body.panel-open).
+const infoPill = document.getElementById('info-pill') as HTMLDivElement | null;
+const pillFormula = document.getElementById('pill-formula') as HTMLSpanElement | null;
+const pillMeta = document.getElementById('pill-meta') as HTMLSpanElement | null;
+function setInfoPill(formula: string, metaHtml: string) {
+  if (pillFormula) pillFormula.textContent = formula;
+  if (pillMeta) pillMeta.innerHTML = metaHtml;
+  infoPill?.classList.remove('hidden');
+}
+function clearInfoPill() {
+  infoPill?.classList.add('hidden');
+}
 
 // --- Adaptive top-bar height ---
 const topBar = document.getElementById('top-bar');
@@ -84,22 +97,77 @@ if (panelResize && sidePanel) {
 
 // --- Side panel controls ---
 
-// Supercell
+// Supercell — V2 `− N +` horizontal stepper per axis (no upper bound).
+// Inputs use type="text" + inputmode="numeric" so native browser spinners
+// stay out of the way; ±buttons are siblings inside .sc-steppers and
+// dispatch 'change' on the input so updateSupercell fires.
 const scA = document.getElementById('sc-a') as HTMLInputElement;
 const scB = document.getElementById('sc-b') as HTMLInputElement;
 const scC = document.getElementById('sc-c') as HTMLInputElement;
 function updateSupercell() {
-  renderer.setSupercell([parseInt(scA.value) || 1, parseInt(scB.value) || 1, parseInt(scC.value) || 1]);
+  renderer.setSupercell([
+    Math.max(1, parseInt(scA.value) || 1),
+    Math.max(1, parseInt(scB.value) || 1),
+    Math.max(1, parseInt(scC.value) || 1),
+  ]);
 }
-scA.addEventListener('change', updateSupercell);
-scB.addEventListener('change', updateSupercell);
-scC.addEventListener('change', updateSupercell);
+function setupSupercellStepper(input: HTMLInputElement | null) {
+  if (!input) return;
+  const wrap = input.closest('.sc-steppers') as HTMLElement | null;
+  if (!wrap) return;
+  const min = Number(input.dataset.axisMin ?? '1');
+  const apply = (delta: number) => {
+    const cur = parseInt(input.value, 10);
+    const base = Number.isFinite(cur) ? cur : min;
+    const next = Math.max(min, base + delta);
+    if (String(next) === input.value) return;
+    input.value = String(next);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+  wrap.querySelector('.sc-dec')?.addEventListener('click', () => apply(-1));
+  wrap.querySelector('.sc-inc')?.addEventListener('click', () => apply(+1));
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowUp')        { e.preventDefault(); apply(+1); }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); apply(-1); }
+  });
+  input.addEventListener('blur', () => {
+    const n = parseInt(input.value, 10);
+    if (!Number.isFinite(n) || n < min) {
+      input.value = String(min);
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  });
+}
+[scA, scB, scC].forEach((el) => setupSupercellStepper(el));
+[scA, scB, scC].forEach((el) => el?.addEventListener('change', updateSupercell));
 
-// Display style
-const styleSelect = document.getElementById('display-style') as HTMLSelectElement;
-if (styleSelect) {
-  styleSelect.addEventListener('change', () => renderer.setDisplayStyle(styleSelect.value as DisplayStyle));
+// Display style — V2 chips replacing the old <select>. Source-of-truth lives
+// in the active chip's data-style attr; keep a `currentDisplayStyle` mirror
+// for saved-state writeback. styleSelect alias retained as the chips
+// container for the saveState `change`-event collector.
+const styleChips = document.getElementById('display-style-chips') as HTMLElement;
+let currentDisplayStyle: DisplayStyle = 'ball-and-stick';
+function applyDisplayStyle(s: DisplayStyle, opts: { dispatch?: boolean } = {}) {
+  currentDisplayStyle = s;
+  if (styleChips) {
+    styleChips.querySelectorAll<HTMLButtonElement>('.chip').forEach((btn) => {
+      btn.classList.toggle('active', btn.dataset.style === s);
+    });
+  }
+  renderer.setDisplayStyle(s);
+  if (opts.dispatch) styleChips?.dispatchEvent(new Event('change', { bubbles: true }));
 }
+if (styleChips) {
+  styleChips.addEventListener('click', (e) => {
+    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('.chip');
+    if (!btn) return;
+    const s = btn.dataset.style as DisplayStyle | undefined;
+    if (!s || s === currentDisplayStyle) return;
+    applyDisplayStyle(s, { dispatch: true });
+  });
+}
+const styleSelect = styleChips; // alias — the saveState collector below addEventListener('change') on this
 
 // Sphere impostor (inside Options section)
 const impostorCheck = document.getElementById('impostor-check') as HTMLInputElement;
@@ -498,6 +566,30 @@ function setupNumberStepper(input: HTMLInputElement | null) {
   setupNumberStepper(document.getElementById(id) as HTMLInputElement | null);
 });
 
+// ----- iOS-style toggle switches (V2) ---------------------------------------
+// Native checkbox stays in DOM (label-clickable, focusable, change-event
+// intact); a sibling .switch span renders the visual control. Walks every
+// .toggle input[type=checkbox] once at startup. Re-callable when new
+// .toggle rows are inserted dynamically (atoms/bonds/poly-centers UIs).
+function setupToggleSwitches(root: ParentNode = document) {
+  root.querySelectorAll<HTMLInputElement>('.toggle input[type="checkbox"]').forEach((input) => {
+    if (input.dataset.switchInjected === '1') return;
+    input.dataset.switchInjected = '1';
+    const sw = document.createElement('span');
+    sw.className = 'switch';
+    if (input.checked) sw.classList.add('on');
+    sw.appendChild(document.createElement('span')).className = 'switch-thumb';
+    // Insert switch right after the input. The label already wraps both
+    // (and a text <span>), so the click-toggle native label behaviour still
+    // forwards to the input regardless of where in the label the user clicks.
+    input.parentElement?.insertBefore(sw, input.nextSibling);
+    input.addEventListener('change', () => {
+      sw.classList.toggle('on', input.checked);
+    });
+  });
+}
+setupToggleSwitches();
+
 // Visibility checkboxes
 const bondsCheck = document.getElementById('bonds-check') as HTMLInputElement;
 const labelsCheck = document.getElementById('labels-check') as HTMLInputElement;
@@ -710,7 +802,7 @@ if (savedState && savedState.schemaVersion === 1) {
     scB.value = String(savedState.supercell[1]);
     scC.value = String(savedState.supercell[2]);
   }
-  if (styleSelect && savedState.displayStyle) styleSelect.value = savedState.displayStyle;
+  if (savedState.displayStyle) applyDisplayStyle(savedState.displayStyle as DisplayStyle);
   if (impostorCheck) impostorCheck.checked = renderer.getImpostorEnabled();
   if (cameraBtn && savedState.cameraMode) {
     cameraBtn.textContent = savedState.cameraMode === 'orthographic' ? 'Ortho' : 'Persp';
@@ -900,13 +992,12 @@ window.addEventListener('message', (event) => {
       renderer.loadStructure(msg.data);
       const si = renderer.getStructureInfo();
       if (si) {
-        const cp = si.cellParams;
-        let txt = `${si.formula} | ${si.atomCount} atoms | ${si.spaceGroup}`;
-        if (cp) txt += ` | a=${cp.a.toFixed(2)} b=${cp.b.toFixed(2)} c=${cp.c.toFixed(2)}`;
-        txt += ` | V=${si.volume.toFixed(1)} \u00C5\u00B3`;
-        info.textContent = txt;
+        const meta: string[] = [si.spaceGroup, `<b>${si.atomCount}</b> atoms`];
+        if (si.volume) meta.push(`<b>${si.volume.toFixed(1)}</b> \u00C5\u00B3`);
+        setInfoPill(si.formula, meta.join(' \u00B7 '));
       } else {
-        info.textContent = `${msg.data.species.length} atoms | ${msg.data.title || ''}`;
+        const t = msg.data.title || `${msg.data.species.length} atoms`;
+        setInfoPill(t, `<b>${msg.data.species.length}</b> atoms`);
       }
       buildAtomPropsUI();
       buildBondPropsUI();
@@ -948,22 +1039,17 @@ window.addEventListener('message', (event) => {
       trajSetPlaying(false);
       renderer.loadTrajectory(msg.data);
       const f0 = msg.data.frames[0];
-      const fallback = msg.data.frames.length > 1
-        ? `${f0.species.length} atoms | ${f0.title || ''} | ${msg.data.frames.length} frames`
-        : `${f0.species.length} atoms | ${f0.title || ''}`;
-      // Mirror loadStructure post-load setup: rebuild data-driven side-panel
-      // sections so opt-in features (ellipsoid/partial/magmom) appear when
-      // the first frame carries the data.
       const si = renderer.getStructureInfo();
       if (si) {
-        const cp = si.cellParams;
-        let txt = `${si.formula} | ${si.atomCount} atoms | ${si.spaceGroup}`;
-        if (cp) txt += ` | a=${cp.a.toFixed(2)} b=${cp.b.toFixed(2)} c=${cp.c.toFixed(2)}`;
-        txt += ` | V=${si.volume.toFixed(1)} Å³`;
-        if (msg.data.frames.length > 1) txt += ` | ${msg.data.frames.length} frames`;
-        info.textContent = txt;
+        const meta: string[] = [si.spaceGroup, `<b>${si.atomCount}</b> atoms`];
+        if (si.volume) meta.push(`<b>${si.volume.toFixed(1)}</b> \u00C5\u00B3`);
+        if (msg.data.frames.length > 1) meta.push(`<b>${msg.data.frames.length}</b> frames`);
+        setInfoPill(si.formula, meta.join(' \u00B7 '));
       } else {
-        info.textContent = fallback;
+        const t = f0.title || `${f0.species.length} atoms`;
+        const meta: string[] = [`<b>${f0.species.length}</b> atoms`];
+        if (msg.data.frames.length > 1) meta.push(`<b>${msg.data.frames.length}</b> frames`);
+        setInfoPill(t, meta.join(' \u00B7 '));
       }
       buildAtomPropsUI();
       buildBondPropsUI();

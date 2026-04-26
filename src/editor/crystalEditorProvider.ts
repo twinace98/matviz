@@ -305,15 +305,14 @@ export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvide
   <div id="side-panel">
     <div id="panel-resize"></div>
     <div class="panel-scroll">
-    <div id="info"></div>
     <div class="panel-section">
       <div class="panel-label">Style</div>
-      <select id="display-style" class="panel-select" title="Rendering style for atoms and bonds">
-        <option value="ball-and-stick" selected title="Atoms as spheres, bonds as split-color cylinders">Ball &amp; Stick</option>
-        <option value="space-filling" title="Atoms at full van der Waals radius, no bonds">Space-filling</option>
-        <option value="stick" title="Bonds only, atoms shrunk to stick radius">Stick</option>
-        <option value="wireframe" title="Lines only">Wireframe</option>
-      </select>
+      <div class="chips" id="display-style-chips" title="Rendering style for atoms and bonds (1-4 keys)">
+        <button class="chip active" data-style="ball-and-stick" title="Atoms as spheres, bonds as split-color cylinders (1)">Ball &amp; Stick</button>
+        <button class="chip" data-style="space-filling" title="Atoms at full van der Waals radius, no bonds (2)">Space-filling</button>
+        <button class="chip" data-style="stick" title="Bonds only, atoms shrunk to stick radius (3)">Stick</button>
+        <button class="chip" data-style="wireframe" title="Lines only (4)">Wireframe</button>
+      </div>
     </div>
     <div class="panel-section">
       <div class="panel-label">Camera</div>
@@ -336,9 +335,30 @@ export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvide
     <div class="panel-section">
       <div class="panel-label" title="Expand the unit cell along each lattice vector">Supercell</div>
       <div class="sc-row">
-        <input type="number" id="sc-a" value="1" min="1" max="5" class="sc-input" title="Supercell repeats along a (1–5)">
-        <input type="number" id="sc-b" value="1" min="1" max="5" class="sc-input" title="Supercell repeats along b (1–5)">
-        <input type="number" id="sc-c" value="1" min="1" max="5" class="sc-input" title="Supercell repeats along c (1–5)">
+        <div class="sc">
+          <div class="sc-l">a</div>
+          <div class="sc-steppers">
+            <button type="button" class="sc-dec" data-target="sc-a" tabindex="-1" aria-label="Decrement a">&minus;</button>
+            <input type="text" inputmode="numeric" id="sc-a" value="1" class="sc-val" data-axis-min="1" title="Supercell repeats along a (≥1)">
+            <button type="button" class="sc-inc" data-target="sc-a" tabindex="-1" aria-label="Increment a">+</button>
+          </div>
+        </div>
+        <div class="sc">
+          <div class="sc-l">b</div>
+          <div class="sc-steppers">
+            <button type="button" class="sc-dec" data-target="sc-b" tabindex="-1" aria-label="Decrement b">&minus;</button>
+            <input type="text" inputmode="numeric" id="sc-b" value="1" class="sc-val" data-axis-min="1" title="Supercell repeats along b (≥1)">
+            <button type="button" class="sc-inc" data-target="sc-b" tabindex="-1" aria-label="Increment b">+</button>
+          </div>
+        </div>
+        <div class="sc">
+          <div class="sc-l">c</div>
+          <div class="sc-steppers">
+            <button type="button" class="sc-dec" data-target="sc-c" tabindex="-1" aria-label="Decrement c">&minus;</button>
+            <input type="text" inputmode="numeric" id="sc-c" value="1" class="sc-val" data-axis-min="1" title="Supercell repeats along c (≥1)">
+            <button type="button" class="sc-inc" data-target="sc-c" tabindex="-1" aria-label="Increment c">+</button>
+          </div>
+        </div>
       </div>
     </div>
     <div class="panel-section hidden" id="iso-section">
@@ -422,6 +442,12 @@ export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvide
       </div>
     </div>
     </div><!-- /.panel-scroll -->
+  </div>
+
+  <!-- Bottom-left info pill (V2 canonical formula readout — always visible) -->
+  <div id="info-pill" class="hidden">
+    <span id="pill-formula"></span>
+    <span id="pill-meta"></span>
   </div>
 
   <div id="tooltip" class="hidden"></div>

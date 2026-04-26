@@ -349,29 +349,69 @@ html, body {
   opacity: 0.5;
 }
 
-/* #info kept temporarily inside the scroll region (Feature 18.6d will lift
-   it to the bottom-left info pill). */
-#info {
-  font-size: 13px;
-  opacity: 0.7;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--v2-line);
-  margin-bottom: 8px;
-  word-break: break-all;
+/* Info pill — bottom-left canonical formula readout (V2 spec).
+   Always visible; shifts horizontally to clear the side panel when open. */
+#info-pill {
+  position: absolute;
+  bottom: 16px;
+  left: calc(var(--mode-bar-w) + 12px);
+  padding: 10px 14px;
+  background: var(--v2-glass-2);
+  -webkit-backdrop-filter: blur(var(--v2-blur));
+  backdrop-filter: blur(var(--v2-blur));
+  border: 1px solid var(--v2-line);
+  border-radius: var(--v2-r-sm);
+  box-shadow: var(--v2-sh-1);
+  z-index: 11;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  font-family: var(--vscode-font-family, monospace);
+  color: var(--v2-fg-1);
+  pointer-events: none;
+  max-width: 70vw;
+}
+body.panel-open #info-pill {
+  left: calc(var(--mode-bar-w) + 12px + var(--side-panel-w) + 12px);
+}
+#pill-formula {
+  font-size: var(--v2-t-title);
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  color: #fff;
+  white-space: nowrap;
+}
+#pill-meta {
+  font-size: var(--v2-t-micro);
+  color: var(--v2-fg-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#pill-meta b {
+  color: var(--v2-fg-2);
+  font-weight: 500;
 }
 
 .panel-section {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 4px 0;
+  gap: 8px;
+  padding: 12px 0;
+  border-top: 1px solid var(--v2-line);
+}
+.panel-section:first-child {
+  border-top: 0;
+  padding-top: 4px;
 }
 
 .panel-label {
-  font-size: 13px;
+  font-size: var(--v2-t-caps);
   text-transform: uppercase;
-  color: var(--vscode-descriptionForeground, #888);
-  letter-spacing: 0.5px;
+  color: var(--v2-fg-3);
+  letter-spacing: 1.1px;
+  font-weight: 600;
 }
 
 .panel-select {
@@ -414,47 +454,150 @@ html, body {
 .toggle {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--v2-t-body);
+  padding: 4px 2px;
+  justify-content: space-between;
+}
+.toggle > span:not(.switch):not(.switch-thumb) {
+  flex: 1;
+  color: var(--v2-fg-1);
 }
 
+/* iOS-style toggle switch (V2 spec, VSCode focus blue when on).
+   Native checkbox stays in DOM (focusable, label-clickable, change events
+   intact) but is visually hidden; the .switch span renders as the visual
+   control. Inserted by setupToggleSwitches() in main.ts at startup. */
 .toggle input[type="checkbox"] {
-  accent-color: var(--vscode-focusBorder, #007fd4);
-  margin: 0;
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.switch {
+  position: relative;
+  display: inline-block;
+  flex-shrink: 0;
+  width: 36px;
+  height: 20px;
+  background: rgba(120, 120, 128, 0.30);
+  border-radius: 10px;
+  transition: background 180ms ease;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+.switch.on {
+  background: var(--vscode-focusBorder, #007fd4);
+}
+.switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
   width: 16px;
   height: 16px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.30), 0 0 0 0.5px rgba(0, 0, 0, 0.04);
 }
+.switch.on .switch-thumb { transform: translateX(16px); }
 
-.sc-row {
+/* ===== Style chips (V2 — replaces the display-style <select>) ===== */
+.chips {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
 }
-
-.sc-input {
-  flex: 1;
-  width: 0;
-  padding: 5px 3px;
-  background: var(--vscode-input-background, #3c3c3c);
-  color: var(--vscode-input-foreground, #ccc);
-  border: 1px solid var(--vscode-input-border, #555);
-  border-radius: 3px;
-  font-size: 14px;
-  text-align: center;
+.chip {
+  padding: 4px 10px;
+  background: var(--v2-surf-0);
+  color: var(--v2-fg-2);
+  border: 1px solid transparent;
+  border-radius: 12px;
+  font-family: inherit;
+  font-size: var(--v2-t-micro);
+  cursor: pointer;
+  transition: all 120ms;
+}
+.chip:hover {
+  color: var(--v2-fg-1);
+  background: var(--v2-surf-1);
+}
+.chip.active {
+  color: #fff;
+  background: var(--v2-surf-accent);
+  border-color: var(--v2-line-focus);
 }
 
-.sc-input.full-width { width: 100%; }
+/* ===== V2 supercell stepper — `−  N  +` per axis, no upper bound ===== */
+.sc-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 6px;
+}
+.sc {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+}
+.sc-l {
+  font-size: var(--v2-t-caps);
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  font-weight: 600;
+  color: var(--v2-fg-3);
+}
+.sc-steppers {
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  height: 26px;
+  background: var(--v2-surf-0);
+  border: 1px solid var(--v2-line);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.sc-steppers:focus-within { border-color: var(--v2-line-focus); }
+.sc-steppers button {
+  width: 22px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  color: var(--v2-fg-2);
+  font-family: inherit;
+  font-size: var(--v2-t-body);
+  cursor: pointer;
+  transition: background 120ms, color 120ms;
+}
+.sc-steppers button:hover {
+  background: var(--v2-surf-1);
+  color: #fff;
+}
+.sc-val {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  background: transparent;
+  border: 0;
+  outline: 0;
+  font-family: inherit;
+  font-size: var(--v2-t-body);
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+  padding: 0;
+  -moz-appearance: textfield;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.sc-val::-webkit-outer-spin-button,
+.sc-val::-webkit-inner-spin-button {
+  -webkit-appearance: none !important;
+  margin: 0 !important;
+}
 
 .hidden { display: none !important; }
-
-.layout-toggle-row {
-  display: flex;
-  gap: 4px;
-}
-
-.layout-toggle-row .panel-btn {
-  flex: 1;
-}
 
 /* ===== Properties panels ===== */
 .panel-label-toggle {
