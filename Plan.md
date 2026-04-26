@@ -328,12 +328,50 @@ plans pair archived.
 
 ---
 
+## v0.21 — Web SPA on github.io
+
+**Goal**: Ship a single-page-app version of matviz that runs entirely in a browser (no VSCode required), hosted on `twinace98.github.io/matviz` (or similar). Drag a `.cif` / `POSCAR` / `XSF` / etc. onto the page → it renders in 3D with the same toolbar / side panel / Measure HUD / info pill / axis indicator that the VSCode webview uses today.
+
+**Why this is feasible**: The webview side of matviz (`src/webview/*` + `src/parsers/*`) is already ~80% browser-native — Three.js rendering, parsers, picking, measurement, HUD. Only the VSCode-specific bridge layer (`acquireVsCodeApi`, custom-editor file lifecycle, command palette) needs replacement.
+
+| # | Feature | Success criterion |
+|---|---------|-------------------|
+| 21.1 | SPA build target | New `npm run build:web` produces `web-dist/{index.html, app.js, app.css, …}` — single static bundle deployable as-is to any static host |
+| 21.2 | VSCode API shim layer | `acquireVsCodeApi`/`postMessage`/`getState`/`setState` calls in `src/webview/main.ts` route through a thin abstraction; web build replaces with `localStorage` + `CustomEvent` no-ops; matviz extension build is byte-for-byte unchanged |
+| 21.3 | File-loading UX | Three entry paths all work: (1) drag-drop a structure file onto the canvas, (2) `<input type=file>` via a "Load file" toolbar button, (3) `?file=<URL>` URL parameter for direct linking |
+| 21.4 | Sample gallery | "Load sample" dropdown / panel populated from `test/fixtures/` (NaCl, Si, SrTiO3, graphene, water cube, etc.) — fixtures shipped as static assets in `web-dist/samples/` |
+| 21.5 | GitHub Pages deployment | GitHub Actions workflow on push to `main` builds the SPA and publishes to `gh-pages` branch (or `docs/` folder); site is reachable at `twinace98.github.io/matviz`. CSP relies on GitHub Pages defaults (no nonce dance) |
+| 21.6 | Permalink + share | Encode current view (camera quaternion + zoom + supercell + display style + iso-level + axis offset) into the URL hash; "Share" button copies the full URL incl. hash + `?file=` parameter |
+| 21.7 (optional) | Materials Project / Optimade fetch | "Load by ID" input field; fetch CIF over HTTPS from MP API (`https://api.materialsproject.org/...`) or any Optimade-compliant provider; render same as a local file |
+
+**Architecture**:
+- `src/webview/main.ts` is the single shared entry — already 95% portable. The remaining `vscode.postMessage(...)` / `getState/setState` calls go through a `host.ts` shim that has two implementations: `host.vscode.ts` (current behavior) and `host.web.ts` (localStorage + console.log).
+- `src/extension.ts`, `src/editor/crystalEditorProvider.ts`, `src/parsers/exporters.ts` (FS-bound parts) are excluded from the web build.
+- Build wiring: esbuild config gets a third entry point alongside `extension.js` and `webview.js` — `app.js` for the SPA. SPA HTML embeds the bundle inline (no VSCode CSP nonce concerns).
+
+**Synergy with v0.20 (spglib WASM)**:
+- GitHub Pages CSP is permissive — `'wasm-unsafe-eval'` works out of the box. If v0.20 ships first, v0.21 picks up spglib symmetry detection automatically with no additional CSP work.
+- If v0.21 ships first, v0.20's CSP relaxation only needs to land on the VSCode webview side, not the SPA.
+
+**Out of scope (deferred to a later version)**:
+- **CLI renderer parity** — `scripts/render.ts` (Node + Puppeteer) stays a separate code path. Web SPA is for interactive viewing, not headless PNG export.
+- **File save** — browser File System Access API is partial-coverage; CIF/POSCAR export becomes "download .cif" via `Blob` + `URL.createObjectURL`. Probably feasible in 21.x but not the main target.
+- **Multi-file workflows** — VSCode tabs handle this naturally; SPA would need an in-page tab UI. The V2 design system already includes a tabs bar mockup that was *out of scope* for v0.18; revisit when SPA usage demands it.
+- **Server-side anything** — no backend. All compute in-browser.
+
+**Decision gate at 21.1 kickoff** — esbuild SPA target vs. Vite. Vite has nicer dev-server ergonomics and auto-splits assets, but matviz already standardized on esbuild for the dual-bundle build. Default: stay with esbuild (one tool, one config) unless dev-server hot-reload becomes a bottleneck during 21.2-21.3 development.
+
+**Exit criterion**: `twinace98.github.io/matviz` renders all test-fixture formats correctly via drag-drop + URL param + sample gallery; permalink survives a hard reload; site loads in <2 s on a cold cache (≤ 6 MB total bundle weight is the soft target — Three.js + parsers ≈ 5 MB, the rest is matviz code).
+
+---
+
 ## Critical decision gates
 
 1. **After 15.4 (WebGPU evaluation)** — ❌ Rejected 2026-04-18. No prototype built; decision based on cost/benefit review (GLSL-to-TSL port cost, already-optimized WebGL2 path, CLI renderer constraint). Revisit: when 50k+ structures actually bottleneck WebGL2 OR compute-shader redesign enters scope (v0.17+).
 2. **v0.18 Gate-B** — Visual review after Feature 18.6. Pass criterion: user opens a non-trivial fixture in VSCode and confirms floating chrome reads correctly.
 3. **Before 19.4 (marketplace publishing)** — pass criterion: all test fixtures render correctly, no console errors, README accurate. On fail: fix before publishing.
 4. **v0.20.1 build path selection** — emscripten C, Rust `moyo` + wasm-bindgen, or existing npm package. Pass criterion: chosen path produces ≤300 KB of additional bundle weight AND the integration test (each fixture's space group matches a manually-verified spglib reference) passes. On fail: fall back to next option in the A→B→C order.
+5. **v0.21.1 build tool selection** — esbuild SPA target (matches existing dual-bundle setup) or Vite (better dev-server, more SPA tooling). Pass criterion: chosen tool produces a working `web-dist/` bundle ≤ 6 MB AND `npm run dev:web` gives sub-second HMR on the existing Three.js + parser source files. On fail: switch to the other.
 
 ---
 
