@@ -1,7 +1,7 @@
 # Project Status
 
 - **Version**: v0.18.1 (polish + parser breadth patch) shipped 2026-04-27 on top of v0.18.0. Adds light-theme support for V2 chrome (rail/panel/toolbar/pill/HUD inverts on `vscode-light`), generalizes "Magnetic moments" → kind-aware "Vectors" overlay (auto-detects from POSCAR MAGMOM, XSF trailing cols, extended-XYZ Properties, CIF moments), full QE `ibrav` coverage (0..14 + signed variants, both `celldm(1..6)` and `A,B,C,cosAB,cosAC,cosBC` forms), Measure-HUD polish (no number gradient + element-colored atom symbols), and side-panel-aware viewport shift via `Camera.setViewOffset` (canvas stays full-size; only the rendered scene moves). Earlier v0.18.0 shipped 2026-04-26 (Floating UI / V2 redesign).
-- **Phase**: v0.18 closed (0.18.1 patch). v0.19 inherits the editor-integration backlog (split-pane, settings namespace, undo/redo, marketplace) per Plan.md.
+- **Phase**: v0.18 closed (0.18.1 patch). v0.19 inherits the editor-integration backlog (split-pane, settings namespace, undo/redo) per Plan.md. Marketplace publishing is deferred to a post-v0.21 milestone.
 - **People**: Seungwoo Shin (twinace98)
 - **Repo**: https://github.com/twinace98/matviz.git (also pushes to `sogang-qmp` remote)
 
@@ -10,11 +10,11 @@
 1. Read in order: `CLAUDE.md` (architecture + workflow) → `Plan.md` (roadmap) → this file → active `plans/` pair if any.
 2. Auto-memory loads from `~/.claude/projects/-home-swshin-matviz/memory/`.
 3. **Next action** (in priority order):
-   1. v0.19 kickoff — editor integration (split-pane, settings namespace, undo/redo, marketplace publish) per Plan.md. Architectural decision gate: migrate to `CustomTextEditorProvider` vs. companion text editor.
+   1. v0.19 kickoff — editor integration (split-pane, settings namespace, undo/redo) per Plan.md. Architectural decision gate: migrate to `CustomTextEditorProvider` vs. companion text editor.
    2. v0.20 kickoff — symmetry detection via spglib WASM (Plan.md). Decision gate at 20.1: emscripten build vs. Rust `moyo` vs. existing npm wrapper. Synergy with v0.21 (web SPA shares the WASM artifact).
    3. v0.21 kickoff — Web SPA on github.io (Plan.md). Decision gate at 21.1: esbuild vs. Vite for the SPA bundler. Builds on the v0.20 WASM symmetry artifact and the existing parser modules.
    4. v0.17.x / v0.18.x CLI + UI polish backlog — see Plan.md. Non-blocking for v0.19/v0.20/v0.21.
-   5. Marketplace publish (any v0.18.x) — optional; gated on a fresh wordmark/icon raster pass since vsce strict-bans SVGs in README.
+   5. **Deferred**: Marketplace publish — post-v0.21 milestone, separate from any version. Gated on a fresh wordmark/icon raster pass since vsce strict-bans SVGs in README.
 
 ## Completed
 
@@ -43,7 +43,7 @@
 ## Pending (from Plan.md)
 
 - [x] **v0.18** — Floating UI / V2 redesign (8 sub-features 18.1–18.8). Shipped 2026-04-26. Plan pair archived to `plans/archives/`.
-- [ ] **v0.19** — Editor integration (split-pane, VSCode settings namespace, undo/redo, marketplace publish). Inherited from old v0.18 placeholder.
+- [ ] **v0.19** — Editor integration (split-pane, VSCode settings namespace, undo/redo). Inherited from old v0.18 placeholder. Marketplace publishing pulled out into a separate deferred milestone.
 - [ ] **v0.17.x backlog** (CLI polish): per-phase opacity/offset, trajectory phase frame selection, per-phase tint, `--compare-trajectory`, `--stats-out` JSON, per-pair displacement listing. To-do but non-blocking.
 
 ## Decisions locked in

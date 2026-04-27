@@ -284,7 +284,10 @@ plans pair archived.
 | 19.1 | Split-pane: text editor + 3D view | Edit CIF text, 3D view updates live (debounced reparse on save) |
 | 19.2 | VSCode settings namespace (`matviz.*`) | All defaults configurable; settings UI works |
 | 19.3 | Undo/redo for property changes | Ctrl+Z restores previous colors/radii/cutoffs |
-| 19.4 | Marketplace publishing | Extension installable from VSCode marketplace |
+
+**Marketplace publishing — deferred**: pulled out of v0.19 into a
+standalone post-v0.21 milestone. Until then, install from source via
+`code --install-extension *.vsix` (already documented in README).
 
 **Architectural dependency — 19.1 blocker**: Current editor is `CustomReadonlyEditorProvider<CrystalDocument>`. Split-pane live edit requires migration to `CustomTextEditorProvider` (so text buffer and webview share a `TextDocument`) OR a companion text editor that posts change events into the read-only viewer. Decision gate at 19.1 kickoff — migration is ~2 days work and affects document lifecycle, dirty state, save interaction.
 
@@ -292,7 +295,10 @@ plans pair archived.
 - **19.2 settings schema**: `matviz.defaults.{style,palette,showBonds,showBoundary,bondCutoff,isoLevel,cameraMode}`. Per-workspace overrides. Migration from current `localStorage` persistence schema v1 → settings-backed: localStorage wins for session, settings provide defaults.
 - **19.3 undo stack**: scoped to property-panel changes (colors, radii, cutoffs, visibility). Does NOT include camera or selection. Separate stack from text-editor undo.
 
-**Exit criterion**: Published on marketplace with all documented features working; `matviz.*` settings documented in README.
+**Exit criterion**: All three features (split-pane, settings namespace,
+undo/redo) work end-to-end with documented features intact; `matviz.*`
+settings documented in README. Marketplace publishing is a separate
+later milestone, not a v0.19 gate.
 
 ---
 
@@ -369,7 +375,7 @@ plans pair archived.
 
 1. **After 15.4 (WebGPU evaluation)** — ❌ Rejected 2026-04-18. No prototype built; decision based on cost/benefit review (GLSL-to-TSL port cost, already-optimized WebGL2 path, CLI renderer constraint). Revisit: when 50k+ structures actually bottleneck WebGL2 OR compute-shader redesign enters scope (v0.17+).
 2. **v0.18 Gate-B** — Visual review after Feature 18.6. Pass criterion: user opens a non-trivial fixture in VSCode and confirms floating chrome reads correctly.
-3. **Before 19.4 (marketplace publishing)** — pass criterion: all test fixtures render correctly, no console errors, README accurate. On fail: fix before publishing.
+3. **Before marketplace publishing (deferred milestone, post-v0.21)** — pass criterion: all test fixtures render correctly, no console errors, README accurate, brand assets rasterized (vsce strict-bans SVG). On fail: fix before publishing.
 4. **v0.20.1 build path selection** — emscripten C, Rust `moyo` + wasm-bindgen, or existing npm package. Pass criterion: chosen path produces ≤300 KB of additional bundle weight AND the integration test (each fixture's space group matches a manually-verified spglib reference) passes. On fail: fall back to next option in the A→B→C order.
 5. **v0.21.1 build tool selection** — esbuild SPA target (matches existing dual-bundle setup) or Vite (better dev-server, more SPA tooling). Pass criterion: chosen tool produces a working `web-dist/` bundle ≤ 6 MB AND `npm run dev:web` gives sub-second HMR on the existing Three.js + parser source files. On fail: switch to the other.
 
@@ -382,7 +388,7 @@ plans pair archived.
 - **v0.16**: Visual comparison with VESTA screenshots for reference structures.
 - **v0.17**: Memory profiling during 1000-frame playback; leak detection via heap snapshots.
 - **v0.18**: Manual fixture spot-check per feature commit + 4-format Gate-C sweep (CIF / POSCAR / CHGCAR+iso / AXSF). No headless visual regression; floating chrome is too dependent on VSCode theme + backdrop-filter behavior to mock reliably.
-- **v0.19**: VSCode marketplace validation checklist; end-to-end install test on clean machine.
+- **v0.19**: End-to-end install test on a clean machine via `code --install-extension *.vsix`. (Marketplace validation moved to the deferred publish milestone.)
 
 ---
 
