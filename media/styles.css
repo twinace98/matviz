@@ -608,7 +608,7 @@ body.panel-open #info-pill {
   color: var(--v2-fg-1);
 }
 
-/* iOS-style toggle switch (V2 spec, VSCode focus blue when on).
+/* Pill toggle switch (V2 spec, VSCode focus blue when on).
    Native checkbox stays in DOM (focusable, label-clickable, change events
    intact) but is visually hidden; the .switch span renders as the visual
    control. Inserted by setupToggleSwitches() in main.ts at startup. */
@@ -819,7 +819,7 @@ body.panel-open #info-pill {
   accent-color: var(--vscode-focusBorder, #007fd4);
 }
 
-/* Bare per-row visibility checkbox is replaced by an iOS-style .switch.sm
+/* Bare per-row visibility checkbox is replaced by a pill .switch.sm
    injected by setupToggleSwitches() at startup and after every dynamic
    buildAtomPropsUI / buildBondPropsUI / buildPolyCentersUI rebuild. */
 input.prop-vis[type="checkbox"] {

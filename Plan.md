@@ -246,7 +246,7 @@ float above it. Replaces the edge-attached opaque chrome wholesale.
 | 18.3 | Mode rail glass restyle | Rail uses `--v2-glass-1` + `backdrop-filter` |
 | 18.4 | Floating centered toolbar | Toolbar is centered glass panel, no longer edge-attached |
 | 18.5 | Floating side panel | Rounded glass, scrollable inner section, panel head removed |
-| 18.6 | Style chips + iOS switches + V2 supercell stepper + info pill + gizmo relocation | Combined panel-content commit (Gate-B sits between this feature and 18.7) |
+| 18.6 | Style chips + toggle switches + V2 supercell stepper + info pill + gizmo relocation | Combined panel-content commit (Gate-B sits between this feature and 18.7) |
 | 18.7 | Help overlay redesign + 1–4 digit style shortcuts | 4-column grid card; `1`/`2`/`3`/`4` swap display style |
 | 18.8 | Measure HUD overlay | Top-right HUD shows in measure mode with hero distance value, atom-pair card, Δ rows |
 

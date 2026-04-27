@@ -632,7 +632,7 @@ function setupNumberStepper(input: HTMLInputElement | null) {
   setupNumberStepper(document.getElementById(id) as HTMLInputElement | null);
 });
 
-// ----- iOS-style toggle switches (V2) ---------------------------------------
+// ----- Toggle switches (V2) -------------------------------------------------
 // Native checkbox stays in DOM (label-clickable, focusable, change-event
 // intact); a sibling .switch span renders the visual control. Walks every
 // .toggle input[type=checkbox] once at startup. Re-callable when new

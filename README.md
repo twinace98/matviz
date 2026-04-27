@@ -159,7 +159,7 @@ panels.
   - Radius slider (0.1–1.5 Å).
   - Visibility checkbox.
 - **Per-pair bond parameters** (Bonds section):
-  - Enable/disable per pair via iOS-style switch.
+  - Enable/disable per pair via toggle switch.
   - Min/max distance cutoffs as the unified `.num-wrap` stepper (Å,
     0.05 step). Default: `min = 0.1`, `max = r_A + r_B + 0.3`.
 - **Bond-detection skip hint**: if the structure exceeds 5 000 atoms,
@@ -241,7 +241,7 @@ panels.
 - **Unified inline-SVG icons** throughout the toolbar + mode rail
   (16×16, 1.5 px stroke, currentColor) — no Unicode/emoji glyphs except
   in the Help overlay's `<kbd>` arrows.
-- **iOS-style switches** for every visibility checkbox (Bonds, Labels,
+- **Toggle switches** for every visibility checkbox (Bonds, Labels,
   Polyhedra, Boundary, Cell lines, per-element atoms list, per-pair
   bonds list, etc.). VSCode focus-blue when on; smooth 200 ms thumb
   transition.
