@@ -24,7 +24,8 @@ const ZERO_THRESHOLD = 1e-4;
 // Scale: 1 Å of arrow length per unit-magnitude vector. Tuned for typical
 // 2–4 μB magmom systems; smaller-magnitude fields (forces in eV/Å) yield
 // proportionally shorter arrows.
-const SCALE_ANGSTROM_PER_UNIT = 1.0;
+// Default scale; user-controllable via setScale(). Length per unit-magnitude.
+const DEFAULT_SCALE_ANGSTROM_PER_UNIT = 1.0;
 const SHAFT_RADIUS = 0.06;
 const TIP_RADIUS = 0.18;
 const TIP_LENGTH = 0.35;
@@ -54,6 +55,10 @@ export class VectorArrowRenderer {
 
   setColormap(c: Colormap) { this.colormap = c; }
   getColormap(): Colormap { return this.colormap; }
+
+  private scale = DEFAULT_SCALE_ANGSTROM_PER_UNIT;
+  setScale(s: number) { this.scale = s; }
+  getScale(): number { return this.scale; }
 
   /**
    * Rebuild meshes from a flat instance list. Caller filters out zero
@@ -90,7 +95,7 @@ export class VectorArrowRenderer {
     for (let i = 0; i < live.length; i++) {
       const inst = live[i];
       const mag = length3(inst.vector);
-      const len = mag * SCALE_ANGSTROM_PER_UNIT;
+      const len = mag * this.scale;
       dir.set(inst.vector[0], inst.vector[1], inst.vector[2]).normalize();
       quat.setFromUnitVectors(yAxis, dir);
 

@@ -33,16 +33,19 @@ export class AxisIndicator {
   setOffset(dx: number, dy: number) { this._dx = dx; this._dy = dy; }
   resetOffset() { this._dx = 0; this._dy = 0; }
 
-  /** Indicator's bounding rect in CSS pixels (top-left origin), clamped to
-   *  stay within the canvas. Used for both rendering (after Y flip) and
-   *  pointer hit-testing on the DOM side. */
+  /** Indicator's bounding rect in CSS pixels (top-left origin). Clamped to
+   *  keep the indicator's center on-screen — up to half the rect may bleed
+   *  off any edge — so dragging can reach corners without "losing" the
+   *  indicator entirely. Used for both rendering (after Y flip) and pointer
+   *  hit-testing on the DOM side. */
   getRect(canvasW: number, canvasH: number): { x: number; y: number; w: number; h: number } {
     const size = this._size;
     const margin = 16;
     const baseX = canvasW - margin - size;
     const baseY = canvasH - margin - size;
-    const x = Math.max(0, Math.min(canvasW - size, baseX - this._dx));
-    const y = Math.max(0, Math.min(canvasH - size, baseY - this._dy));
+    const half = size / 2;
+    const x = Math.max(-half, Math.min(canvasW - half, baseX - this._dx));
+    const y = Math.max(-half, Math.min(canvasH - half, baseY - this._dy));
     return { x, y, w: size, h: size };
   }
 

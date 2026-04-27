@@ -43,32 +43,9 @@ The webview is built around the V2 *Floating UI* (shipped in v0.18.0):
 3D viewport fills the canvas; chrome floats above as translucent glass
 panels.
 
-```
-+----------------------------------------------------------------+
-|Mo|  Side Panel (rounded, glass, 8px inset on every edge)       |
-|de|     STYLE              [Ball&Stick] [Space-fill] [Stick]…   |
-|   |    CAMERA             [Ortho]                              |
-|ra|     VISIBILITY         toggle switches (Bonds, Labels…) |
-|il|     AXES SIZE          slider                               |
-|  |     SUPERCELL          [-  N  +] × 3 (fluid, no upper cap)  |
-|  |     ISO-LEVEL          slider + numeric (volumetric only)   |
-|  |     OVERLAY ▶          collapsed by default                 |
-|  |     ATOMS ▶            per-element color/radius/visibility  |
-|  |     BONDS ▶            per-pair min/max as `.num-wrap`      |
-|  |     POLYHEDRA CTRS ▶                                        |
-|  |     OPTIONS ▶          impostor toggle, etc.                |
-+--+-------------------------------------------------------------+
-|                                                                |
-|     [Top toolbar — content-sized centered glass pill,          |
-|      wraps + shrinks below 870 px (panel closed) /             |
-|      1140 px (panel open)]                                     |
-|                                                                |
-|                      3D Viewport                               |
-|                                                                |
-|                                          [Axis indicator a/b/c]|
-|  [Info pill — formula · spg · N atoms · V Å³ · selected atom]  |
-+----------------------------------------------------------------+
-```
+<p align="center">
+  <img src="media/UI-layout.png" alt="MatViz UI layout — mode rail, side panel, top toolbar, 3D viewport, info pill, axis indicator" width="900" />
+</p>
 
 - **Mode rail** (full-height left edge): navigate / measure / panel-toggle
   / shortcuts. Glass surface; rendered above all floating chrome

@@ -431,6 +431,11 @@ export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvide
         <label class="toggle"><input type="radio" name="vec-colormap" value="redblue" id="vec-cmap-redblue" checked><span>Red/Blue</span></label>
         <label class="toggle"><input type="radio" name="vec-colormap" value="viridis" id="vec-cmap-viridis"><span>Viridis</span></label>
       </div>
+      <div class="iso-row" title="Arrow length scale (Å per unit-magnitude vector). 1.0 = 1 Å arrow per μB / per eV·Å⁻¹.">
+        <span class="iso-row-k">Scale</span>
+        <input type="range" id="vec-scale-slider" class="iso-slider" min="0.1" max="50" step="0.1" value="1.0">
+        <input type="text" inputmode="decimal" id="vec-scale-num" class="iso-num" data-min="0.1" data-max="50" data-step="0.1" data-precision="1" value="1.0">
+      </div>
     </div>
     <div class="panel-section">
       <div class="panel-label panel-label-toggle" id="atoms-toggle" title="Expand per-element color / radius / visibility overrides">Atoms &#x25B6;</div>

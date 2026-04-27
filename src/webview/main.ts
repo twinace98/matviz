@@ -510,6 +510,25 @@ if (vecCmapRedblue) {
 if (vecCmapViridis) {
   vecCmapViridis.addEventListener('change', () => { if (vecCmapViridis.checked) renderer.setVectorColormap('viridis'); });
 }
+const vecScaleSlider = document.getElementById('vec-scale-slider') as HTMLInputElement | null;
+const vecScaleNum = document.getElementById('vec-scale-num') as HTMLInputElement | null;
+if (vecScaleSlider && vecScaleNum) {
+  setupNumberStepper(vecScaleNum);
+  vecScaleSlider.addEventListener('input', () => {
+    const s = parseFloat(vecScaleSlider.value);
+    if (s > 0) {
+      renderer.setVectorScale(s);
+      vecScaleNum.value = s.toFixed(1);
+    }
+  });
+  vecScaleNum.addEventListener('change', () => {
+    const s = parseFloat(vecScaleNum.value);
+    if (s > 0) {
+      renderer.setVectorScale(s);
+      vecScaleSlider.value = String(s);
+    }
+  });
+}
 function updateAtomVectorsSectionVisibility() {
   const section = document.getElementById('atom-vectors-section');
   if (!section) return;
@@ -519,6 +538,9 @@ function updateAtomVectorsSectionVisibility() {
     const cmap = renderer.getVectorColormap();
     if (vecCmapRedblue) vecCmapRedblue.checked = (cmap === 'redblue');
     if (vecCmapViridis) vecCmapViridis.checked = (cmap === 'viridis');
+    const scale = renderer.getVectorScale();
+    if (vecScaleSlider) vecScaleSlider.value = String(scale);
+    if (vecScaleNum) vecScaleNum.value = scale.toFixed(1);
     if (vecKindLabel) {
       const info = renderer.getAtomVectorInfo();
       if (info) {
@@ -1120,7 +1142,7 @@ window.addEventListener('wheel', debouncedSave);
 [scA, scB, scC, styleSelect, impostorCheck, stepAngleInput, stepZoomInput,
   bondsCheck, labelsCheck, polyCheck, boundaryCheck, celldashCheck, axisSizeSlider,
   ellipsoidsCheck, ellipsoidContour50, ellipsoidContour90, partialOccCheck,
-  vectorCheck, vecCmapRedblue, vecCmapViridis]
+  vectorCheck, vecCmapRedblue, vecCmapViridis, vecScaleSlider, vecScaleNum]
   .forEach((el) => el?.addEventListener('change', debouncedSave));
 cameraBtn?.addEventListener('click', debouncedSave);
 paletteBtn?.addEventListener('click', debouncedSave);

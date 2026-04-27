@@ -657,6 +657,14 @@ export class CrystalRenderer {
 
   getVectorColormap(): VecColormap { return this.vectorArrowRenderer.getColormap(); }
 
+  setVectorScale(s: number) {
+    if (s === this.vectorArrowRenderer.getScale()) return;
+    this.vectorArrowRenderer.setScale(s);
+    if (this.structure && this.showAtomVectors) this.buildVisuals();
+  }
+
+  getVectorScale(): number { return this.vectorArrowRenderer.getScale(); }
+
   /**
    * Whether the loaded structure carries any non-zero per-atom vector.
    * Used by the UI to surface the vector-overlay section.
@@ -1193,6 +1201,7 @@ export class CrystalRenderer {
     showPartialOccupancy: boolean;
     showAtomVectors: boolean;
     vectorColormap: VecColormap;
+    vectorScale: number;
   } {
     const pos = this.activeCamera.position;
     const target = this.controls.target;
@@ -1226,6 +1235,7 @@ export class CrystalRenderer {
       showPartialOccupancy: this.showPartialOccupancy,
       showAtomVectors: this.showAtomVectors,
       vectorColormap: this.vectorArrowRenderer.getColormap(),
+      vectorScale: this.vectorArrowRenderer.getScale(),
     };
   }
 
@@ -1276,6 +1286,9 @@ export class CrystalRenderer {
     if (typeof state.showAtomVectors === 'boolean') this.showAtomVectors = state.showAtomVectors;
     if (state.vectorColormap === 'redblue' || state.vectorColormap === 'viridis') {
       this.vectorArrowRenderer.setColormap(state.vectorColormap);
+    }
+    if (typeof state.vectorScale === 'number' && state.vectorScale > 0) {
+      this.vectorArrowRenderer.setScale(state.vectorScale);
     }
 
     if (state.cameraMode !== this.cameraMode) {
@@ -1858,19 +1871,27 @@ export class CrystalRenderer {
   }
 
   private createMeasurementLabel(text: string): THREE.Sprite {
+    // High-DPI label: draw at 4× the historical 256×64 resolution so the
+    // texture stays crisp when the sprite scales up on a HiDPI display or
+    // close camera. The sprite's world scale (1.5, 0.4) is unchanged.
+    const SCALE = 4;
+    const W = 256 * SCALE, H = 64 * SCALE;
     const c = document.createElement('canvas');
-    c.width = 256;
-    c.height = 64;
+    c.width = W;
+    c.height = H;
     const ctx = c.getContext('2d')!;
     ctx.fillStyle = 'rgba(0,0,0,0.7)';
-    ctx.roundRect(0, 0, 256, 64, 8);
+    ctx.roundRect(0, 0, W, H, 8 * SCALE);
     ctx.fill();
     ctx.fillStyle = '#ffff00';
-    ctx.font = 'bold 32px sans-serif';
+    ctx.font = `bold ${32 * SCALE}px sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(text, 128, 32);
+    ctx.fillText(text, W / 2, H / 2);
     const tex = new THREE.CanvasTexture(c);
+    tex.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
+    tex.minFilter = THREE.LinearMipmapLinearFilter;
+    tex.magFilter = THREE.LinearFilter;
     this.textures.push(tex);
     const mat = this.trackMat(new THREE.SpriteMaterial({ map: tex, depthTest: false }));
     const sprite = new THREE.Sprite(mat);
@@ -2603,20 +2624,27 @@ export class CrystalRenderer {
     let tex = this.labelTextureCache.get(element);
     if (tex) return tex;
 
+    // High-DPI atom label: 4× the historical 128×64 so element symbols stay
+    // crisp under close zoom. Cached per element so the cost is one-time.
+    const SCALE = 4;
+    const W = 128 * SCALE, H = 64 * SCALE;
     const c = document.createElement('canvas');
-    c.width = 128;
-    c.height = 64;
+    c.width = W;
+    c.height = H;
     const ctx = c.getContext('2d')!;
     ctx.fillStyle = 'rgba(0,0,0,0.6)';
-    ctx.roundRect(0, 0, 128, 64, 8);
+    ctx.roundRect(0, 0, W, H, 8 * SCALE);
     ctx.fill();
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 36px sans-serif';
+    ctx.font = `bold ${36 * SCALE}px sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(element, 64, 32);
+    ctx.fillText(element, W / 2, H / 2);
 
     tex = new THREE.CanvasTexture(c);
+    tex.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
+    tex.minFilter = THREE.LinearMipmapLinearFilter;
+    tex.magFilter = THREE.LinearFilter;
     this.labelTextureCache.set(element, tex);
     this.textures.push(tex);
     return tex;
