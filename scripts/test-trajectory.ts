@@ -185,8 +185,12 @@ function pass(msg: string): void { console.log(`PASS: ${msg}`); }
     fail(`invariant: positions/species length mismatch`);
   }
   // Optional fields preserved on frame 0
-  if (!traj.frames[0].magMom) fail(`magMom not preserved through trajectory wrap`);
-  pass(`invariants verified: frames>=1, latticeMode valid, positions/species aligned, magMom preserved`);
+  // v0.18.1: moments live in `atomVectors` (kind 'magmom').
+  const av = traj.frames[0].atomVectors;
+  if (!av || av.kind !== 'magmom' || av.values.length !== traj.frames[0].species.length) {
+    fail(`magmom atomVectors not preserved through trajectory wrap: ${JSON.stringify(av && { kind: av.kind, n: av.values.length })}`);
+  }
+  pass(`invariants verified: frames>=1, latticeMode valid, positions/species aligned, magmom atomVectors preserved`);
 }
 
 console.log('\nAll trajectory-bridge tests passed.');
