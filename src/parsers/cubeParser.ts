@@ -4,7 +4,7 @@ import {
 } from './types';
 import { getElementByNumber } from '../shared/elements-data';
 import { iterLines, offsetAfterLines } from './lineIterator';
-import { TentAccumulator } from './downsample';
+import { GridResampler } from './downsample';
 
 const BOHR_TO_ANG = 0.529177249;
 
@@ -124,9 +124,9 @@ export function parseCubeFromBytes(
   const outNz = Math.ceil(nz / stride);
   // Cube source ordering: ix slowest, iz fastest — identical to the C-order
   // memory layout, so factor 1 writes straight through. Factor > 1 feeds the
-  // v0.23.1 tent accumulator (periodic splat, no position drift).
+  // v0.23.1 trilinear resampler (periodic, no position drift).
   const acc = stride > 1
-    ? new TentAccumulator([nx, ny, nz], [outNx, outNy, outNz], { order: 'z-fastest' })
+    ? new GridResampler([nx, ny, nz], [outNx, outNy, outNz], { order: 'z-fastest' })
     : null;
   let data: Float32Array | null = acc ? null : new Float32Array(totalPoints);
   let count = 0;

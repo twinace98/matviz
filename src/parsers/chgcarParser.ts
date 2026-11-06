@@ -3,7 +3,7 @@ import {
   VolumetricLoadOptions, VOLUMETRIC_SAFETY_MAX_GRID_POINTS, chooseStride,
 } from './types';
 import { parsePoscar } from './poscarParser';
-import { TentAccumulator } from './downsample';
+import { GridResampler } from './downsample';
 import { iterLines, offsetAfterLines } from './lineIterator';
 
 /**
@@ -256,11 +256,11 @@ export function parseChgcarFromBytes(
   // v0.23.3: stream ALL grid blocks (charge + magnetization/σ), skipping the
   // PAW augmentation sections between them; each new block begins at a
   // repeated `nx ny nz` dims line. Stride applied per grid during ingestion.
-  // v0.23.1: factor > 1 → tent accumulator (periodic splat; CHGCAR grids are
+  // v0.23.1: factor > 1 → trilinear resampler (periodic; CHGCAR grids are
   // periodic with no duplicated endpoint). Factor 1 writes straight through.
   const rawGrids: Float32Array[] = [];
   const newAcc = () => (stride > 1
-    ? new TentAccumulator([nx, ny, nz], [outNx, outNy, outNz], { order: 'x-fastest' })
+    ? new GridResampler([nx, ny, nz], [outNx, outNy, outNz], { order: 'x-fastest' })
     : null);
   let acc = newAcc();
   let data: Float32Array | null = acc ? null : new Float32Array(totalPoints);

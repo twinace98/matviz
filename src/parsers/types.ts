@@ -1,4 +1,4 @@
-import { tentDownsample } from './downsample';
+import { resampleGrid } from './downsample';
 
 export interface CrystalStructure {
   lattice: [number, number, number][];  // 3 lattice vectors in Angstroms
@@ -120,7 +120,7 @@ export function decimateVolumetric(
   const [nx, ny, nz] = v.dims;
   const stride = chooseStride(nx, ny, nz, cap);
   if (stride <= 1) return v;
-  // v0.23.1: tent splat (see downsample.ts) instead of keeping every s-th
+  // v0.23.1: trilinear resampling (see downsample.ts) instead of keeping every s-th
   // sample — point sampling drifted the grid when N % s ≠ 0. String-path
   // grids are already trimmed of XSF periodic-closure planes, so no skip.
   const outDims: [number, number, number] = [
@@ -129,7 +129,7 @@ export function decimateVolumetric(
   return {
     ...v,
     dims: outDims,
-    data: tentDownsample(v.data, v.dims, outDims),
+    data: resampleGrid(v.data, v.dims, outDims),
     stride: (v.stride ?? 1) * stride,
     originalDims: v.originalDims ?? [nx, ny, nz],
   };

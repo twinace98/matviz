@@ -4,7 +4,7 @@ import {
 } from './types';
 import { getElementByNumber } from '../shared/elements-data';
 import { iterLines, iterLineSpans, findBytes, firstNumbers, lastNumbersBefore } from './lineIterator';
-import { TentAccumulator, detectRedundantEndpoints, outputCount } from './downsample';
+import { GridResampler, detectRedundantEndpoints, outputCount } from './downsample';
 
 const DATAGRID_MARKER = new TextEncoder().encode('BEGIN_BLOCK_DATAGRID_3D');
 const END_DATAGRID_MARKER = new TextEncoder().encode('END_DATAGRID_3D');
@@ -525,7 +525,7 @@ export function parseXsfFromBytes(
  * v0.23.2 byte-path multi-grid parser. Streams the byte block once,
  * finalizing each grid at its `END_DATAGRID_3D` and resuming the scan for
  * the next `BEGIN_DATAGRID_3D` (handles multiple grids and multiple BLOCK
- * sections). Downsampling (v0.23.1 tent splat) is applied per grid during
+ * sections). Downsampling (v0.23.1 trilinear resampling) is applied per grid during
  * ingestion. At factor 1 the full grid is read and the existing full-volume
  * `trimRedundantPeriodicPlanes` runs; at factor > 1 the periodic-closure
  * planes are detected up front from the first/last data planes and given
@@ -544,7 +544,7 @@ function parseDatagrids3DFromBytes(blockBytes: Uint8Array, options?: VolumetricL
   let data: Float32Array | null = null;
   let stride = 1, outNx = 0, outNy = 0, outNz = 0, totalPoints = 0;
   let ix = 0, iy = 0, iz = 0, count = 0;
-  let acc: TentAccumulator | null = null;
+  let acc: GridResampler | null = null;
 
   const finalize = () => {
     if (acc) { data = acc.finish(); acc = null; }
@@ -606,7 +606,7 @@ function parseDatagrids3DFromBytes(blockBytes: Uint8Array, options?: VolumetricL
           outNx = outputCount(nx, stride, skip[0]);
           outNy = outputCount(ny, stride, skip[1]);
           outNz = outputCount(nz, stride, skip[2]);
-          acc = new TentAccumulator([nx, ny, nz], [outNx, outNy, outNz], { order: 'x-fastest', skipLast: skip });
+          acc = new GridResampler([nx, ny, nz], [outNx, outNy, outNz], { order: 'x-fastest', skipLast: skip });
         }
         if (!acc) {
           stride = 1;

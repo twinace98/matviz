@@ -9,7 +9,7 @@
 import { readFileSync } from 'fs';
 import path from 'path';
 import { parseStructureFileTraj, parseStructureFileTrajFromBytes } from '../src/parsers/index';
-import { tentDownsample } from '../src/parsers/downsample';
+import { resampleGrid } from '../src/parsers/downsample';
 
 const FIXTURES = [
   'test/fixtures/h2o.cube',
@@ -113,18 +113,18 @@ console.log(`  output dims:  ${onx}×${ony}×${onz}  (${onx*ony*onz} points)`);
 console.log(`  stride:       ${stride}`);
 console.log(`  originalDims: ${dvol.originalDims?.join('×')}`);
 
-// v0.23.1: decimation is a tent splat (src/parsers/downsample.ts), not
-// stride sampling. Reference = the in-memory tent downsample of the full
+// v0.23.1: decimation is periodic trilinear resampling (src/parsers/downsample.ts), not
+// stride sampling. Reference = the in-memory resampleGrid of the full
 // grid. The byte path accumulates in file order (x fastest), the reference in
 // C order, so values agree to float rounding, not bit-for-bit.
-const ref = tentDownsample(fullData, [nx, ny, nz], [onx, ony, onz]);
+const ref = resampleGrid(fullData, [nx, ny, nz], [onx, ony, onz]);
 let maxAbs = 0, maxDiff = 0;
 for (let i = 0; i < ref.length; i++) {
   maxAbs = Math.max(maxAbs, Math.abs(ref[i]));
   maxDiff = Math.max(maxDiff, Math.abs(ref[i] - dvol.data[i]));
 }
 const strideOk = ref.length === dvol.data.length && maxDiff <= 1e-6 * (maxAbs || 1);
-console.log(`  ${strideOk ? 'OK  ' : 'FAIL'} decimated grid matches tent downsample of the full grid (max rel diff ${(maxDiff / (maxAbs || 1)).toExponential(1)})`);
+console.log(`  ${strideOk ? 'OK  ' : 'FAIL'} decimated grid matches resampleGrid of the full grid (max rel diff ${(maxDiff / (maxAbs || 1)).toExponential(1)})`);
 if (!strideOk) process.exit(1);
 console.log('\nAll stride checks passed.');
 
@@ -152,7 +152,7 @@ if (!stringPathOk) {
   process.exit(1);
 }
 
-// And: the string-path values match the byte-path values (same tent splat,
+// And: the string-path values match the byte-path values (same resampler,
 // different accumulation order → float-rounding agreement).
 let crossDiff = 0, crossMax = 0;
 for (let i = 0; i < lifStrCap.volumetric.data.length; i++) {

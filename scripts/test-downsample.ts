@@ -1,5 +1,5 @@
 /**
- * v0.23.1 Feature 23.1.4 — tent downsampling tests.
+ * v0.23.1 Feature 23.1.4 — trilinear downsampling tests.
  *
  * Unit: identity at factor 1, constant field preserved, mean preserved,
  * centroid drift ≤ 0.10 output voxel for N ∈ {100, 101, 64, 41} × s ∈ {2, 3},
@@ -12,7 +12,7 @@
  */
 import { readFileSync } from 'fs';
 import * as path from 'path';
-import { makeAxisMap, tentDownsample, TentAccumulator, detectRedundantEndpoints } from '../src/parsers/downsample';
+import { makeAxisMap, resampleGrid, GridResampler, detectRedundantEndpoints } from '../src/parsers/downsample';
 import { parseStructureFileTraj, parseStructureFileTrajFromBytes } from '../src/parsers/index';
 import type { VolumetricData } from '../src/parsers/types';
 
@@ -68,15 +68,15 @@ console.log('[unit] axis map');
   check('M = N is an exact identity map', ok);
   const k = makeAxisMap(41, 20, true);
   check('skipLast: last sample has zero weight', k.w0[40] === 0 && k.w1[40] === 0);
-  const tot = Array.from(makeAxisMap(101, 34).wsum).reduce((a, b) => a + b, 0);
-  check('weights sum to N', Math.abs(tot - 101) < 1e-9, `(${tot})`);
+  const ws = makeAxisMap(101, 34).wsum;
+  check('every output node reads weights summing to 1', Array.from(ws).every(w => Math.abs(w - 1) < 1e-12));
 }
 
 console.log('[unit] identity / constant / mean / centroid');
 {
   const dims: Dims = [17, 13, 11];
   const d = blob(dims, [0.3, 0.6, 0.45]);
-  const same = tentDownsample(d, dims, dims);
+  const same = resampleGrid(d, dims, dims);
   check('factor 1 is bit-identical', same.every((v, i) => v === d[i]));
 
   for (const N of [100, 101, 64, 41]) {
@@ -84,10 +84,10 @@ console.log('[unit] identity / constant / mean / centroid');
       const dims3: Dims = [N, N, N];
       const out: Dims = [Math.ceil(N / s), Math.ceil(N / s), Math.ceil(N / s)];
       const c = new Float32Array(N * N * N).fill(2.5);
-      const cd = tentDownsample(c, dims3, out);
+      const cd = resampleGrid(c, dims3, out);
       let maxErr = 0; for (const v of cd) maxErr = Math.max(maxErr, Math.abs(v - 2.5));
       const b = blob(dims3, [0.37, 0.52, 0.61]);
-      const bd = tentDownsample(b, dims3, out);
+      const bd = resampleGrid(b, dims3, out);
       const c0 = centroidFrac(b, dims3), c1 = centroidFrac(bd, out);
       const drift = Math.max(...[0, 1, 2].map(a => Math.abs(pdiff(c1[a], c0[a])) * out[a]));
       const relMean = Math.abs(mean(bd) - mean(b)) / mean(b);
@@ -97,6 +97,27 @@ console.log('[unit] identity / constant / mean / centroid');
         maxErr < 1e-5 && relMean < 5e-3 && drift <= 0.10,
         `const err ${maxErr.toExponential(1)}, mean rel ${relMean.toExponential(1)}, drift ${drift.toFixed(3)} vox`);
     }
+  }
+}
+
+console.log('[unit] exact node hits / peak retention');
+{
+  // N divisible by s: output nodes coincide with source samples → equals
+  // plain point sampling exactly.
+  const dims: Dims = [60, 60, 60], out: Dims = [20, 20, 20];
+  const d = blob(dims, [0.31, 0.52, 0.77]);
+  const r = resampleGrid(d, dims, out);
+  let exact = true;
+  for (let i = 0; i < 20 && exact; i++) for (let j = 0; j < 20 && exact; j++) for (let k = 0; k < 20; k++)
+    if (r[i * 400 + j * 20 + k] !== d[(3 * i) * 3600 + (3 * j) * 60 + 3 * k]) { exact = false; break; }
+  check('N % s == 0: identical to point sampling', exact);
+  // Peak retention on a blob that is still resolved after downsampling.
+  for (const [N, s] of [[101, 2], [101, 3], [41, 3]] as const) {
+    const dd: Dims = [N, N, N], oo: Dims = [Math.ceil(N / s), Math.ceil(N / s), Math.ceil(N / s)];
+    const b = blob(dd, [0.37, 0.52, 0.61]);
+    const bd = resampleGrid(b, dd, oo);
+    let m0 = 0, m1 = 0; for (const v of b) m0 = Math.max(m0, v); for (const v of bd) m1 = Math.max(m1, v);
+    check(`N=${N} s=${s}: peak retained`, m1 / m0 >= 0.85, `peak ratio ${(m1 / m0).toFixed(3)}`);
   }
 }
 
@@ -110,8 +131,8 @@ console.log('[unit] skipLast ≡ trimmed grid');
   for (let i = 0; i <= N; i++) for (let j = 0; j <= N; j++) for (let k = 0; k <= N; k++)
     f[i * (N + 1) ** 2 + j * (N + 1) + k] = t[(i % N) * N * N + (j % N) * N + (k % N)];
   const out: Dims = [14, 14, 14];
-  const a = tentDownsample(t, dimsT, out);
-  const b = tentDownsample(f, dimsF, out, [true, true, true]);
+  const a = resampleGrid(t, dimsT, out);
+  const b = resampleGrid(f, dimsF, out, [true, true, true]);
   let maxDiff = 0; for (let i = 0; i < a.length; i++) maxDiff = Math.max(maxDiff, Math.abs(a[i] - b[i]));
   check('closure-plane grid with skipLast matches trimmed grid', maxDiff < 1e-6, `max diff ${maxDiff.toExponential(1)}`);
 
@@ -128,8 +149,8 @@ console.log('[unit] x-fastest stream order == z-fastest');
   const dims: Dims = [9, 7, 5];
   const d = blob(dims, [0.4, 0.4, 0.4]);
   const out: Dims = [4, 3, 2];
-  const ref = tentDownsample(d, dims, out);
-  const acc = new TentAccumulator(dims, out, { order: 'x-fastest' });
+  const ref = resampleGrid(d, dims, out);
+  const acc = new GridResampler(dims, out, { order: 'x-fastest' });
   for (let z = 0; z < 5; z++) for (let y = 0; y < 7; y++) for (let x = 0; x < 9; x++) acc.push(d[x * 35 + y * 5 + z]);
   const got = acc.finish();
   let maxDiff = 0; for (let i = 0; i < ref.length; i++) maxDiff = Math.max(maxDiff, Math.abs(ref[i] - got[i]));
