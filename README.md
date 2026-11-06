@@ -412,6 +412,7 @@ Common options:
 | `--compare-to-phase` | NN displacement arrows + `[comparison] RMSD: …` stdout summary against the first `--phase`. PBC-aware on identical lattices. Requires `--phase`; incompatible with `--all-frames`. |
 | `--info` | Print structure summary (atoms, formula, cell, volume, space group, crystal system, Hall number) to stdout. If `-o` is omitted, exits without launching the headless browser — sub-100 ms cold. Combine with `-o` for both PNG + summary. |
 | `--json` | Emit `--info` output as JSON. Implies `--info`. |
+| `--timeout <s>` | Seconds allowed for page load + scene build (default 30). Raise for large supercells or dense volumetric grids. |
 | `--no-bonds` / `--no-boundary` / `--no-cell` | Disable bonds / boundary atoms / cell wireframe |
 
 Run `node dist/render.js --help` for the full list.

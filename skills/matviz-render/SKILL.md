@@ -81,6 +81,7 @@ before reporting completion. Silent success is not success.
 | `--compare-to-phase` | flag | off | Compute NN displacement from the primary structure to the **first** `--phase`, render Viridis-coloured arrows, and print a one-line `[comparison] RMSD: X.XXX Å (matched N, unmatched M, max …, mean …, p95 …)` summary to stdout. Same-species NN matching; PBC-aware when the two lattices are equal. Requires `--phase`; incompatible with `--all-frames`. |
 | `--info` | flag | off | Print a structure summary (atoms, formula, cell parameters, volume, space group, crystal system, Hall number) to stdout. If `-o` is omitted, exits without spinning up the headless browser — ideal for fast info-only queries. Combine with `-o` to render PNG **and** print info. |
 | `--json` | flag | off | Emit `--info` output as JSON instead of plain text. Implies `--info`. Easier to consume from report-generation pipelines (`jq`, Python, etc.). |
+| `--timeout` | seconds | `30` | Time allowed for page load + scene build. Raise for large supercells or dense volumetric grids (`Navigation timeout of … ms exceeded`). |
 | `--test` | flag | — | Render a test scene (red sphere) for smoke-testing |
 | `-h, --help` | flag | — | Print usage |
 
@@ -300,9 +301,21 @@ If the output is wrong, do not retry with the same arguments. Diagnose first
 
 ## Troubleshooting
 
-- **Blank/white image**: likely WebGL context issue. The renderer uses SwiftShader
-  software rendering; if Chromium isn't downloading or crashes, re-run `npm install`
-  in `{{MATVIZ_DIR}}`.
+- **Blank/white image**:
+  - Before v0.23.1, large structures (≳ 40 Å, e.g. big supercells or a molecule
+    in a large box) were washed into the background by a fixed fog density, and
+    structures ≳ 160 Å were clipped entirely — on `--bg white` that is an all-white
+    PNG. Fixed in v0.23.1 (fog and clipping now scale with the camera distance);
+    rebuild with `npm run build` if you still see it.
+  - `--bg transparent` writes alpha-0 pixels; viewers with a white canvas
+    (Preview, Word, slides) show them as white. Use an explicit `--bg` when the
+    image will not be composited.
+  - Otherwise a WebGL context issue: the renderer uses SwiftShader software
+    rendering; if Chromium isn't downloading or crashes, re-run `npm install`
+    in `{{MATVIZ_DIR}}`.
+- **`Navigation timeout of 30000 ms exceeded`**: the scene took longer than the
+  default 30 s to build (very large supercell or volumetric grid). Pass
+  `--timeout 120`.
 - **"no input file specified"**: pass the structure file as the first positional
   argument (before any flags).
 - **Wrong colors**: check `--palette`. Dark palette brightens CPK colors for dark

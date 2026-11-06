@@ -1,5 +1,6 @@
 import puppeteer from 'puppeteer';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { parseStructureFile, parseStructureFileTraj } from '../src/parsers/index';
 import { ELEMENTS, DEFAULT_ELEMENT } from '../src/shared/elements-data';
@@ -78,6 +79,8 @@ interface RenderOptions {
   // given). `infoJson` switches the text format to JSON.
   info: boolean;
   infoJson: boolean;
+  // Seconds allowed for page load + scene build (default 30).
+  timeout: number;
 }
 
 function parseArgs(argv: string[]): RenderOptions {
@@ -116,6 +119,7 @@ function parseArgs(argv: string[]): RenderOptions {
     compareToPhase: false,
     info: false,
     infoJson: false,
+    timeout: 30,
   };
 
   const args = argv.slice(2);
@@ -194,6 +198,12 @@ function parseArgs(argv: string[]): RenderOptions {
       case '--compare-to-phase': opts.compareToPhase = true; break;
       case '--info': opts.info = true; break;
       case '--json': opts.infoJson = true; opts.info = true; break;
+      case '--timeout': {
+        const v = parseFloat(args[++i]);
+        if (!(v > 0)) { console.error(`Invalid --timeout: ${args[i]} (seconds, > 0)`); process.exit(1); }
+        opts.timeout = v;
+        break;
+      }
       case '-h': case '--help': printHelp(); process.exit(0);
       default:
         if (!a.startsWith('-')) positional.push(a);
@@ -290,6 +300,9 @@ Options:
                          omitted; combines with -o to render PNG AND print.
   --json                 Emit --info as JSON (implies --info). Useful for
                          report-generation pipelines.
+  --timeout <s>          Seconds allowed for page load + scene build
+                         (default: 30). Raise for large supercells or
+                         dense volumetric grids.
   --test                 Render test scene (red sphere)
   -h, --help             Show this help`);
 }
@@ -1528,10 +1541,21 @@ if (OPTS.plane) {
   scene.add(planeMesh);
 }
 
-// --- Fog ---
+// --- Clipping range + fog, scaled to the camera distance ---
+// v0.23.1: the camera sits ~2.6×size from the center, so a fixed far plane
+// (500) clipped every object above ~160 Å and a fixed fog density (0.015)
+// washed structures above ~40 Å into the background color (all-white PNGs
+// on --bg white). Mirrors the webview's size-aware fog (renderer.ts).
+const camDist = camera.position.distanceTo(new THREE.Vector3(...center));
+camera.far = Math.max(500, camDist + size * 2);
+if (OPTS.camera !== 'persp') camera.near = -camera.far;
+camera.updateProjectionMatrix();
+
 if (OPTS.bg !== 'transparent') {
   const fogColor = new THREE.Color(OPTS.bg);
-  scene.fog = new THREE.FogExp2(fogColor, 0.015);
+  // Caps fog at the scene center to 1 - exp(-0.09) ≈ 8.6% for any size;
+  // structures with camDist < 20 Å keep the original 0.015 density.
+  scene.fog = new THREE.FogExp2(fogColor, Math.min(0.015, 0.3 / camDist));
 }
 
 // --- Render ---
@@ -1638,7 +1662,10 @@ async function render(opts: RenderOptions) {
     ],
   });
 
-  const tmpHtml = path.join(__dirname, '_render_tmp.html');
+  // Per-process temp page: concurrent CLI runs used to share
+  // dist/_render_tmp.html and could overwrite or delete each other's page.
+  const tmpHtml = path.join(os.tmpdir(), `matviz_render_${process.pid}_${Date.now()}.html`);
+  const timeoutMs = Math.round(opts.timeout * 1000);
   try {
     const page = await browser.newPage();
     await page.setViewport({ width: opts.width, height: opts.height });
@@ -1658,8 +1685,10 @@ async function render(opts: RenderOptions) {
         .replace(/__THREE_PATH__/g, `file://${threePath}`)
         .replace(/__HELPERS_PATH__/g, `file://${helpersPath}`);
       fs.writeFileSync(tmpHtml, fixed);
-      await page.goto(`file://${tmpHtml}`, { waitUntil: 'networkidle0', timeout: 30000 });
-      await page.waitForFunction('window.__renderDone === true', { timeout: 30000 });
+      // `__renderDone` is the real completion signal; 'networkidle0' only
+      // added a second, redundant deadline on the same (synchronous) work.
+      await page.goto(`file://${tmpHtml}`, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
+      await page.waitForFunction('window.__renderDone === true', { timeout: timeoutMs });
       await new Promise(r => setTimeout(r, 200));
       const dataUrl = await page.evaluate(() => {
         const c = document.getElementById('c') as HTMLCanvasElement;
