@@ -221,28 +221,63 @@ export function resampleGrid(
  * Detect XSF "general grid" periodic closure (last plane duplicates the
  * first) per axis WITHOUT the whole grid in memory. Input values are in XSF
  * file order (x fastest): `firstPlane` = the first nx·ny values (z = 0),
- * `lastPlane` = the last nx·ny values (z = nz − 1). x and y are judged on the
- * first plane only; z compares the two planes. Same tolerance rule as the
+ * `lastPlane` = the last nx·ny values (z = nz − 1), or null when unavailable
+ * (z then counts as inconclusive). x and y are judged on the
+ * first plane only; z compares the two planes. Tolerance as in the
  * full-volume `trimRedundantPeriodicPlanes` (1e-5 × max |value| seen).
+ *
+ * An axis whose boundary values are all ≲ 1e-3 × max |value| is
+ * inconclusive (near-zero boundaries always "match" — common for molecules
+ * or localized states in a large box). Writers apply the closure convention
+ * to all axes alike, so inconclusive axes take the majority verdict of the
+ * conclusive ones (tie → no closure); if none is conclusive, the XSF spec
+ * default (general grid ⇒ closure present) applies.
  */
+export function detectRedundantEndpointsDetailed(
+  dims: [number, number, number],
+  firstPlane: ArrayLike<number>,
+  lastPlane: ArrayLike<number> | null,
+): { skip: [boolean, boolean, boolean]; conclusive: [boolean, boolean, boolean] } {
+  const [nx, ny, nz] = dims;
+  const none = { skip: [false, false, false] as [boolean, boolean, boolean], conclusive: [false, false, false] as [boolean, boolean, boolean] };
+  if (firstPlane.length < nx * ny) return none;
+  // No usable last plane (e.g. it belongs to another grid): z is inconclusive.
+  const zPlane = lastPlane && lastPlane.length >= nx * ny ? lastPlane : null;
+  let maxAbs = 0;
+  for (let i = 0; i < nx * ny; i++) maxAbs = Math.max(maxAbs, Math.abs(firstPlane[i]), zPlane ? Math.abs(zPlane[i]) : 0);
+  const tol = 1e-5 * (maxAbs || 1);
+  const sig = 1e-3 * maxAbs;
+  type Verdict = 'equal' | 'differ' | 'unknown';
+  const judge = (n: number, pairs: (cb: (a: number, b: number) => boolean) => void): Verdict => {
+    if (n <= 2) return 'differ';
+    let equal = true, big = 0;
+    pairs((a, b) => {
+      big = Math.max(big, Math.abs(a), Math.abs(b));
+      if (Math.abs(a - b) > tol) { equal = false; return false; }
+      return true;
+    });
+    if (!equal) return 'differ';
+    return big > sig ? 'equal' : 'unknown';
+  };
+  const at = (p: ArrayLike<number>, ix: number, iy: number) => p[ix + nx * iy];
+  const v: Verdict[] = [
+    judge(nx, cb => { for (let iy = 0; iy < ny; iy++) if (!cb(at(firstPlane, 0, iy), at(firstPlane, nx - 1, iy))) return; }),
+    judge(ny, cb => { for (let ix = 0; ix < nx; ix++) if (!cb(at(firstPlane, ix, 0), at(firstPlane, ix, ny - 1))) return; }),
+    zPlane ? judge(nz, cb => { for (let k = 0; k < nx * ny; k++) if (!cb(firstPlane[k], zPlane[k])) return; })
+      : (nz <= 2 ? 'differ' : 'unknown'),
+  ];
+  const eqVotes = v.filter(x => x === 'equal').length, diffVotes = v.filter(x => x === 'differ').length;
+  const fallback = eqVotes + diffVotes === 0 ? true : eqVotes > diffVotes;
+  const skip = v.map((x, a) => (dims[a] <= 2 ? false : x === 'unknown' ? fallback : x === 'equal')) as [boolean, boolean, boolean];
+  const conclusive = v.map(x => x !== 'unknown') as [boolean, boolean, boolean];
+  return { skip, conclusive };
+}
+
+/** Closure flags only — see `detectRedundantEndpointsDetailed`. */
 export function detectRedundantEndpoints(
   dims: [number, number, number],
   firstPlane: ArrayLike<number>,
   lastPlane: ArrayLike<number>,
 ): [boolean, boolean, boolean] {
-  const [nx, ny, nz] = dims;
-  let maxAbs = 0;
-  for (let i = 0; i < firstPlane.length; i++) maxAbs = Math.max(maxAbs, Math.abs(firstPlane[i]));
-  for (let i = 0; i < lastPlane.length; i++) maxAbs = Math.max(maxAbs, Math.abs(lastPlane[i]));
-  const tol = 1e-5 * (maxAbs || 1);
-  const at = (p: ArrayLike<number>, ix: number, iy: number) => p[ix + nx * iy];
-  const complete = firstPlane.length >= nx * ny && lastPlane.length >= nx * ny;
-  let sx = complete && nx > 2, sy = complete && ny > 2, sz = complete && nz > 2;
-  for (let iy = 0; sx && iy < ny; iy++)
-    if (Math.abs(at(firstPlane, 0, iy) - at(firstPlane, nx - 1, iy)) > tol) sx = false;
-  for (let ix = 0; sy && ix < nx; ix++)
-    if (Math.abs(at(firstPlane, ix, 0) - at(firstPlane, ix, ny - 1)) > tol) sy = false;
-  for (let k = 0; sz && k < nx * ny; k++)
-    if (Math.abs(firstPlane[k] - lastPlane[k]) > tol) sz = false;
-  return [sx, sy, sz];
+  return detectRedundantEndpointsDetailed(dims, firstPlane, lastPlane).skip;
 }

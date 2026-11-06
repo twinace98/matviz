@@ -187,7 +187,7 @@ export function parseChgcar(content: string): { structure: CrystalStructure; vol
  * `parseChgcar` so the byte and string paths agree on where the
  * structure ends and the charge grid begins.
  */
-function findPoscarEnd(lines: string[]): number {
+export function findPoscarEnd(lines: string[]): number {
   let poscarEnd = -1;
   let atomsStarted = false;
   let atomCount = 0;
