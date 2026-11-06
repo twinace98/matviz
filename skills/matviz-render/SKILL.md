@@ -120,7 +120,7 @@ rendered (blue / red, VESTA convention) when the data is signed.
 # 1) Inspect first — reads only the header, instant on any size:
 node {{MATVIZ_DIR}}/dist/render.js wfn.cube --info
 #   Grid: 1200×1200×1200, 1 grid, 6.44 GiB at full resolution
-#   Render grid: 270×270×270 (factor 5, …; --max-grid-points 20000000)
+#   Render grid: 240×240×240 (factor 5, 52.7 MiB; --max-grid-points 20000000)
 # 2) Render — the file is streamed and downsampled on the fly:
 node {{MATVIZ_DIR}}/dist/render.js wfn.cube -o wfn.png --iso 0.01
 # Finer grid (slower), or the full grid if it fits in memory:
