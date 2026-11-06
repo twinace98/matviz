@@ -21,7 +21,7 @@ import { iterLines, offsetAfterLines } from './lineIterator';
  * matches the manual's 4-entry Model Tree, and memory is bounded by the
  * v0.22 `maxGridPoints` decimation applied upstream.
  */
-function buildChgcarGrids(
+export function buildChgcarGrids(
   rawGrids: Float32Array[],
   lattice: [number, number, number][],
   dims: [number, number, number],
@@ -75,7 +75,7 @@ function isDimsLine(line: string, nx: number, ny: number, nz: number): boolean {
 }
 
 /** Cell volume |a · (b × c)| from lattice rows. */
-function cellVolume(lat: [number, number, number][]): number {
+export function cellVolume(lat: [number, number, number][]): number {
   const a = lat[0], b = lat[1], c = lat[2];
   return Math.abs(
     a[0] * (b[1] * c[2] - b[2] * c[1]) -

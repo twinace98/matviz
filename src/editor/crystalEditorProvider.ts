@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { CrystalStructure, CrystalTrajectory, VolumetricData } from '../parsers/types';
 import { parseStructureFileTraj, parseStructureFileTrajFromBytes, hasBytePath } from '../parsers/index';
 import { exportCif, exportPoscar } from '../parsers/exporters';
+import { parseVolumetricStream } from '../parsers/volumetricStream';
 import path from 'path';
 
 // Unified inline-SVG icon set (16×16 viewBox, 1.5px stroke, currentColor, no fill, round caps).
@@ -123,19 +124,23 @@ export class CrystalEditorProvider implements vscode.CustomTextEditorProvider {
    * used at editor open — reparse-on-edit uses `parseDocument` and is
    * suppressed entirely for raw-byte loads.
    */
-  private async parseDocumentInitial(document: vscode.TextDocument): Promise<ParsedContent | null> {
+  private async parseDocumentInitial(document: vscode.TextDocument): Promise<ParsedContent | null | 'cancelled'> {
     const filename = path.basename(document.uri.fsPath);
     if (hasBytePath(filename)) {
       try {
         const stat = await vscode.workspace.fs.stat(document.uri);
         if (stat.size >= RAW_BYTE_THRESHOLD) {
-          const bytes = await vscode.workspace.fs.readFile(document.uri);
           // v0.22 Tier 3: pass user's volumetric grid-point cap into the
           // parser so it can decimate during ingestion. `null` (the default)
           // lets the parser fall back to its safety-default cap, which keeps
           // grids well under the 4 GiB ArrayBuffer ceiling.
           const userCap = vscode.workspace.getConfiguration('matviz.volumetric').get<number | null>('maxGridPoints', null);
-          const result = parseStructureFileTrajFromBytes(bytes, filename, { maxGridPoints: userCap });
+          // v0.23.1: local files stream in chunks (no 2 GiB fs.readFile
+          // limit, memory ≈ output grids); other schemes (remote / virtual
+          // file systems) keep the whole-file byte path.
+          const result = document.uri.scheme === 'file'
+            ? await this.streamVolumetric(document.uri.fsPath, filename, userCap)
+            : parseStructureFileTrajFromBytes(await vscode.workspace.fs.readFile(document.uri), filename, { maxGridPoints: userCap });
           return {
             uri: document.uri,
             trajectory: result.trajectory,
@@ -145,12 +150,39 @@ export class CrystalEditorProvider implements vscode.CustomTextEditorProvider {
             usedRawBytePath: true,
           };
         }
-      } catch {
-        // Fall through to the synchronous TextDocument path. If that also
-        // fails the caller will surface the parse-error toast.
+      } catch (err) {
+        // A cancelled stream must not fall through: reading a multi-GB file
+        // via TextDocument is exactly what the user just stopped.
+        if (err instanceof Error && err.name === 'AbortError') return 'cancelled';
+        // Otherwise fall through to the synchronous TextDocument path. If
+        // that also fails the caller will surface the parse-error toast.
       }
     }
     return this.parseDocument(document);
+  }
+
+  /** v0.23.1: chunked streaming load with a cancellable progress notification. */
+  private streamVolumetric(fsPath: string, filename: string, maxGridPoints: number | null) {
+    return vscode.window.withProgress({
+      location: vscode.ProgressLocation.Notification,
+      title: `MatViz: loading ${filename}`,
+      cancellable: true,
+    }, async (progress, token) => {
+      const ac = new AbortController();
+      token.onCancellationRequested(() => ac.abort());
+      let lastPct = 0;
+      return parseVolumetricStream(fsPath, filename, {
+        maxGridPoints,
+        signal: ac.signal,
+        onProgress: (read, total) => {
+          const pct = Math.floor((100 * read) / total);
+          if (pct > lastPct) {
+            progress.report({ increment: pct - lastPct, message: `${(read / 2 ** 30).toFixed(2)} / ${(total / 2 ** 30).toFixed(2)} GiB` });
+            lastPct = pct;
+          }
+        },
+      });
+    });
   }
 
   async resolveCustomTextEditor(
@@ -164,8 +196,11 @@ export class CrystalEditorProvider implements vscode.CustomTextEditorProvider {
     // first via "Open in MatViz" → split pane). v0.22 Tier 2:
     // `parseDocumentInitial` is async because oversize volumetric files
     // (>256 MiB) bypass TextDocument and stream-parse from raw bytes.
-    let content = await this.parseDocumentInitial(document);
-    if (!content) {
+    const initial = await this.parseDocumentInitial(document);
+    let content = initial === 'cancelled' ? null : initial;
+    if (initial === 'cancelled') {
+      vscode.window.showInformationMessage(`MatViz: loading ${path.basename(document.uri.fsPath)} was cancelled.`);
+    } else if (!content) {
       const filename = path.basename(document.uri.fsPath);
       vscode.window.showErrorMessage(
         `MatViz could not parse ${filename}. Open the file in the text editor to inspect it.`,

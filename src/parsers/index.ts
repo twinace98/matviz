@@ -241,6 +241,28 @@ export function parseStructureFileTrajFromBytes(
   }, filename);
 }
 
+/**
+ * Shared tail of the byte path and the Node-only streaming parser
+ * (`volumetricStream.ts`, v0.23.1): symmetry on the structure, then the
+ * named-grid list. Lives here because `withSymmetry` / `attachGridList` are
+ * private to this module.
+ */
+export function finalizeVolumetricResult(
+  structure: CrystalStructure,
+  volumetrics: VolumetricData[],
+  filename: string,
+): ParseTrajectoryResult {
+  const f0 = withSymmetry(structure);
+  // A lone unnamed grid (cube) goes in as `volumetric` so attachGridList names
+  // it ('density' / 'charge') exactly as the string path does.
+  const named = volumetrics.length > 1 || (volumetrics.length === 1 && volumetrics[0].name != null);
+  return attachGridList({
+    trajectory: { frames: [f0], latticeMode: 'fixed' },
+    volumetric: volumetrics[0],
+    volumetrics: named ? volumetrics : undefined,
+  }, filename);
+}
+
 /** File extensions that have a byte-path parser available. */
 export function hasBytePath(filename: string): boolean {
   const lower = filename.toLowerCase();

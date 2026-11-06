@@ -16,7 +16,7 @@ interface CubeHeader {
   nAtoms: number;
 }
 
-function parseCubeHeader(lines: string[]): CubeHeader {
+export function parseCubeHeader(lines: string[]): CubeHeader {
   const title = lines[0].trim();
 
   const line2 = lines[2].trim().split(/\s+/).map(Number);

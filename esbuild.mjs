@@ -205,6 +205,17 @@ const probeTestConfig = {
   sourcemap: false,
 };
 
+// Streaming volumetric parser test (v0.23.1.3). `--large` adds a > 2 GiB file.
+const streamTestConfig = {
+  entryPoints: ['scripts/test-volumetric-stream.ts'],
+  bundle: true,
+  outfile: 'dist/test-volumetric-stream.js',
+  format: 'cjs',
+  platform: 'node',
+  target: 'node18',
+  sourcemap: false,
+};
+
 if (watch) {
   const ctx1 = await esbuild.context(extensionConfig);
   const ctx2 = await esbuild.context(webviewConfig);
@@ -234,5 +245,6 @@ if (watch) {
   await esbuild.build(nnMatchingTestConfig);
   await esbuild.build(downsampleTestConfig);
   await esbuild.build(probeTestConfig);
+  await esbuild.build(streamTestConfig);
   console.log('Build complete.');
 }

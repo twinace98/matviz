@@ -398,7 +398,7 @@ function parseDatagrids3D(block: string): VolumetricData[] {
  * The spanning vectors are unchanged — they still describe the full cell edge,
  * which after trimming is spanned by `N-1` intervals as it should be.
  */
-function trimRedundantPeriodicPlanes(vd: VolumetricData): VolumetricData {
+export function trimRedundantPeriodicPlanes(vd: VolumetricData): VolumetricData {
   const [nx, ny, nz] = vd.dims;
   const d = vd.data;
   const at = (ix: number, iy: number, iz: number) => d[ix * ny * nz + iy * nz + iz];
@@ -465,7 +465,7 @@ function trimRedundantPeriodicPlanes(vd: VolumetricData): VolumetricData {
  * genuine sub-region (offset origin or a length ratio far from 1) are left
  * untouched so partial-cell plots keep their own extent.
  */
-function snapGridLatticeToCell(
+export function snapGridLatticeToCell(
   vd: VolumetricData,
   cell: [number, number, number][],
 ): void {

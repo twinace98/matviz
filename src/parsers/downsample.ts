@@ -277,7 +277,7 @@ export function detectRedundantEndpointsDetailed(
 export function detectRedundantEndpoints(
   dims: [number, number, number],
   firstPlane: ArrayLike<number>,
-  lastPlane: ArrayLike<number>,
+  lastPlane: ArrayLike<number> | null,
 ): [boolean, boolean, boolean] {
   return detectRedundantEndpointsDetailed(dims, firstPlane, lastPlane).skip;
 }
