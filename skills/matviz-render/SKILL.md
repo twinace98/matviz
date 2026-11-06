@@ -81,6 +81,7 @@ before reporting completion. Silent success is not success.
 | `--compare-to-phase` | flag | off | Compute NN displacement from the primary structure to the **first** `--phase`, render Viridis-coloured arrows, and print a one-line `[comparison] RMSD: X.XXX Å (matched N, unmatched M, max …, mean …, p95 …)` summary to stdout. Same-species NN matching; PBC-aware when the two lattices are equal. Requires `--phase`; incompatible with `--all-frames`. |
 | `--info` | flag | off | Print a structure summary (atoms, formula, cell parameters, volume, space group, crystal system, Hall number) to stdout. If `-o` is omitted, exits without spinning up the headless browser — ideal for fast info-only queries. Combine with `-o` to render PNG **and** print info. |
 | `--json` | flag | off | Emit `--info` output as JSON instead of plain text. Implies `--info`. Easier to consume from report-generation pipelines (`jq`, Python, etc.). |
+| `--max-grid-points` | number or `full` | `2e7` | Per-grid point budget for volumetric files. Larger grids are downsampled while the file streams in (periodic trilinear — no position drift), e.g. 600³ → 200³. `full` = only the 4×10⁸ memory-safety cap. `--info` shows the file's grid and the factor that will be used. |
 | `--timeout` | seconds | `30` | Time allowed for page load + scene build. Raise for large supercells or dense volumetric grids (`Navigation timeout of … ms exceeded`). |
 | `--test` | flag | — | Render a test scene (red sphere) for smoke-testing |
 | `-h, --help` | flag | — | Print usage |
@@ -113,6 +114,21 @@ node {{MATVIZ_DIR}}/dist/render.js h2o.cube \
 Tip: iso level depends on the data's value range. Start at ~0.05 for typical
 charge densities, then bracket up/down. Both positive and negative lobes are
 rendered (blue / red, VESTA convention) when the data is signed.
+
+**Very large volumetric files (hundreds of MB to tens of GB)**
+```bash
+# 1) Inspect first — reads only the header, instant on any size:
+node {{MATVIZ_DIR}}/dist/render.js wfn.cube --info
+#   Grid: 1200×1200×1200, 1 grid, 6.44 GiB at full resolution
+#   Render grid: 270×270×270 (factor 5, …; --max-grid-points 20000000)
+# 2) Render — the file is streamed and downsampled on the fly:
+node {{MATVIZ_DIR}}/dist/render.js wfn.cube -o wfn.png --iso 0.01
+# Finer grid (slower), or the full grid if it fits in memory:
+node {{MATVIZ_DIR}}/dist/render.js wfn.cube -o wfn.png --iso 0.01 --max-grid-points 1e8 --timeout 300
+```
+Files of any size work (no 2 GiB / 512 MiB limits); memory ≈ the rendered grid.
+Downsampling keeps positions exact but cannot keep features narrower than one
+output voxel — if a small lobe disappears, raise `--max-grid-points`.
 
 **Spin-polarized CHGCAR — pick the grid**
 ```bash
@@ -313,6 +329,10 @@ If the output is wrong, do not retry with the same arguments. Diagnose first
   - Otherwise a WebGL context issue: the renderer uses SwiftShader software
     rendering; if Chromium isn't downloading or crashes, re-run `npm install`
     in `{{MATVIZ_DIR}}`.
+- **Isosurface from a huge file looks coarse or a small lobe is missing**: the
+  grid was downsampled to `--max-grid-points` (stderr prints
+  `[matviz] grid A → B (factor N, trilinear)`). Raise the budget, e.g.
+  `--max-grid-points 1e8 --timeout 300`.
 - **`Navigation timeout of 30000 ms exceeded`**: the scene took longer than the
   default 30 s to build (very large supercell or volumetric grid). Pass
   `--timeout 120`.

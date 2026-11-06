@@ -14,7 +14,8 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { probeVolumetric, dimsForFactor, bytesForFactor } from '../src/parsers/volumetricProbe';
+import { probeVolumetric, dimsForFactor, bytesForFactor, resolutionChoices, VolumetricProbe } from '../src/parsers/volumetricProbe';
+import { chooseStride, VOLUMETRIC_SAFETY_MAX_GRID_POINTS } from '../src/parsers/types';
 import { parseStructureFileTraj, parseStructureFileTrajFromBytes } from '../src/parsers/index';
 import { synthCube, synthXsf, synthChgcar } from './lib/synthGrids';
 
@@ -97,6 +98,32 @@ async function compare(label: string, file: string, parseAs: string, opts: { gri
     check('full-res estimate and recommended factor', p.fullResBytes === 4 * N ** 3 && p.recommendedFactor === 2 && eq(p.recommendedDims, [600, 600, 600]),
       `${(p.fullResBytes / 2 ** 30).toFixed(2)} GiB full → factor ${p.recommendedFactor} → ${p.recommendedDims.join('×')} (${(bytesForFactor(p, 2) / 2 ** 30).toFixed(2)} GiB)`);
     fs.unlinkSync(file);
+  }
+
+  console.log('[resolution prompt choices]');
+  {
+    const fake = (n: number, grids = 1): VolumetricProbe => {
+      const p = {
+        format: 'cube', fileSize: 0, dims: [n, n, n], effectiveDims: [n, n, n], gridCount: grids, gridCountEstimated: false,
+        outputGridCount: grids, fullResBytes: 4 * n ** 3 * grids, recommendedFactor: chooseStride(n, n, n, VOLUMETRIC_SAFETY_MAX_GRID_POINTS),
+        recommendedDims: [0, 0, 0], redundantEndpoint: [false, false, false], endpointSource: 'none', dataOffset: 0, bytesPerValue: 13, bytesRead: 0,
+      } as VolumetricProbe;
+      p.recommendedDims = dimsForFactor(p, p.recommendedFactor);
+      return p;
+    };
+    const show = (c: ReturnType<typeof resolutionChoices>) => c.map(x => `${x.kind} ${x.dims[0]}³ ${(x.bytes / 2 ** 30).toFixed(2)}G`).join(' | ');
+    const GiB = 2 ** 30;
+    const c1 = resolutionChoices(fake(1200), GiB);
+    check('1200³ (6.4 GiB, over safety cap): recommended 600³, smaller 400³, no original', show(c1) === 'recommended 600³ 0.80G | smaller 400³ 0.24G', show(c1));
+    const c2 = resolutionChoices(fake(700), GiB);
+    check('700³ (1.28 GiB, within safety cap): recommended 350³, smaller 234³, original 700³', show(c2) === 'recommended 350³ 0.16G | smaller 234³ 0.05G | original 700³ 1.28G', show(c2));
+    const c3 = resolutionChoices(fake(1000), GiB / 4);
+    check('1000³ with a 0.25 GiB limit: larger = safety-cap grid 500³', show(c3) === 'recommended 334³ 0.14G | smaller 250³ 0.06G | larger 500³ 0.47G', show(c3));
+    check('900³ (2.7 GiB) under a 4 GiB limit: no prompt', resolutionChoices(fake(900), 4 * GiB).length === 0);
+    check('600³ (0.80 GiB) under a 1 GiB limit: no prompt', resolutionChoices(fake(600), GiB).length === 0);
+    const c5 = resolutionChoices(fake(500, 4), GiB);
+    check('500³ ×4 grids (1.86 GiB): counts every loaded grid', c5[0]?.factor === 2 && Math.abs(c5[0].bytes - 4 * 4 * 250 ** 3) < 1, show(c5));
+    check('limit 0 = never prompt', resolutionChoices(fake(1200), 0).length === 0);
   }
 
   console.log('[errors]');

@@ -86,6 +86,32 @@ export function bytesForFactor(p: VolumetricProbe, factor: number): number {
   return 4 * d[0] * d[1] * d[2] * p.outputGridCount;
 }
 
+export interface ResolutionChoice {
+  kind: 'recommended' | 'smaller' | 'larger' | 'original';
+  factor: number;
+  dims: Dims;
+  bytes: number;
+}
+
+/**
+ * Choices for the resolution prompt (v0.23.1.5). `recommended` = the largest
+ * grid whose bytes fit `limit`; `smaller` = one factor coarser; plus the
+ * largest grid within the memory-safety cap (`original` when that is full
+ * resolution, else `larger`) if it is bigger than the recommendation.
+ * Returns [] when no question is needed (full resolution fits `limit`).
+ */
+export function resolutionChoices(p: VolumetricProbe, limit: number): ResolutionChoice[] {
+  if (!limit || p.fullResBytes <= limit) return [];
+  const mk = (kind: ResolutionChoice['kind'], factor: number): ResolutionChoice =>
+    ({ kind, factor, dims: dimsForFactor(p, factor), bytes: bytesForFactor(p, factor) });
+  const safest = p.recommendedFactor;
+  let rec = safest;
+  while (bytesForFactor(p, rec) > limit) rec++;
+  const out = [mk('recommended', rec), mk('smaller', rec + 1)];
+  if (safest < rec) out.push(mk(safest === 1 ? 'original' : 'larger', safest));
+  return out;
+}
+
 /** Incremental positioned reader over the head of a file. */
 class HeadReader {
   buf = new Uint8Array(0);

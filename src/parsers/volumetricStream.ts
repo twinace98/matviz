@@ -394,6 +394,30 @@ async function readRange(file: string, start: number, end: number): Promise<Uint
   } finally { await fh.close(); }
 }
 
+/**
+ * Structure only (atoms, lattice, symmetry) from the header bytes — no grid
+ * data is read. Used by CLI `--info` on files of any size.
+ */
+export async function readVolumetricStructure(
+  filePath: string,
+  filename: string = path.basename(filePath),
+  probe?: VolumetricProbe,
+): Promise<{ structure: CrystalStructure; probe: VolumetricProbe }> {
+  const p = probe ?? await probeVolumetric(filePath, filename);
+  const headerText = new TextDecoder('utf-8', { fatal: false }).decode(await readRange(filePath, 0, p.dataOffset));
+  let structure: CrystalStructure;
+  if (p.format === 'cube') structure = parseCubeHeader(headerText.split('\n')).structure;
+  else if (p.format === 'chgcar') {
+    const lines = headerText.split('\n');
+    structure = parsePoscar(lines.slice(0, findPoscarEnd(lines)).join('\n'));
+  } else {
+    const marker = headerText.indexOf('BEGIN_BLOCK_DATAGRID_3D');
+    const { volumetric: _v, volumetrics: _vs, ...st } = parseXsf(marker >= 0 ? headerText.slice(0, marker) : headerText);
+    structure = st as CrystalStructure;
+  }
+  return { structure: finalizeVolumetricResult(structure, [], filename).trajectory.frames[0], probe: p };
+}
+
 export async function parseVolumetricStream(
   filePath: string,
   filename: string = path.basename(filePath),

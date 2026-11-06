@@ -165,6 +165,12 @@
           "maximum": 400,
           "description": "Default axis-indicator size in pixels. Resizable in the side panel; saved per-file state wins on return visits."
         },
+        "matviz.volumetric.promptAboveBytes": {
+          "type": "number",
+          "default": 1073741824,
+          "minimum": 0,
+          "description": "When a volumetric file (cube, XSF, CHGCAR) of 256 MiB or more would need more than this many bytes of grid data at full resolution, MatViz asks which resolution to load before reading it (recommended / smaller / original). The grid header is read first, so the question appears instantly. 0 = never ask (use matviz.volumetric.maxGridPoints or the 4×10⁸-point safety cap). Ignored when matviz.volumetric.maxGridPoints is set."
+        },
         "matviz.volumetric.maxGridPoints": {
           "type": [
             "number",
