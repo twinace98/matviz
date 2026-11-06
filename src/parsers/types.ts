@@ -1,3 +1,5 @@
+import { tentDownsample } from './downsample';
+
 export interface CrystalStructure {
   lattice: [number, number, number][];  // 3 lattice vectors in Angstroms
   species: string[];                     // element symbol per atom
@@ -118,26 +120,16 @@ export function decimateVolumetric(
   const [nx, ny, nz] = v.dims;
   const stride = chooseStride(nx, ny, nz, cap);
   if (stride <= 1) return v;
-  const outNx = Math.ceil(nx / stride);
-  const outNy = Math.ceil(ny / stride);
-  const outNz = Math.ceil(nz / stride);
-  const data = new Float32Array(outNx * outNy * outNz);
-  // Source memory layout: data[ix * ny * nz + iy * nz + iz] (C order,
-  // iz fastest in memory). Sample at stride-aligned (ix, iy, iz).
-  for (let oi = 0; oi < outNx; oi++) {
-    for (let oj = 0; oj < outNy; oj++) {
-      for (let ok = 0; ok < outNz; ok++) {
-        const ix = oi * stride, iy = oj * stride, iz = ok * stride;
-        data[oi * outNy * outNz + oj * outNz + ok] =
-          v.data[ix * ny * nz + iy * nz + iz];
-      }
-    }
-  }
+  // v0.23.1: tent splat (see downsample.ts) instead of keeping every s-th
+  // sample — point sampling drifted the grid when N % s ≠ 0. String-path
+  // grids are already trimmed of XSF periodic-closure planes, so no skip.
+  const outDims: [number, number, number] = [
+    Math.ceil(nx / stride), Math.ceil(ny / stride), Math.ceil(nz / stride),
+  ];
   return {
-    origin: v.origin,
-    lattice: v.lattice,
-    dims: [outNx, outNy, outNz],
-    data,
+    ...v,
+    dims: outDims,
+    data: tentDownsample(v.data, v.dims, outDims),
     stride: (v.stride ?? 1) * stride,
     originalDims: v.originalDims ?? [nx, ny, nz],
   };

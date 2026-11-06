@@ -183,6 +183,17 @@ const nnMatchingTestConfig = {
   sourcemap: false,
 };
 
+// Tent downsampling test (v0.23.1.4). Unit + fixture drift checks.
+const downsampleTestConfig = {
+  entryPoints: ['scripts/test-downsample.ts'],
+  bundle: true,
+  outfile: 'dist/test-downsample.js',
+  format: 'cjs',
+  platform: 'node',
+  target: 'node18',
+  sourcemap: false,
+};
+
 if (watch) {
   const ctx1 = await esbuild.context(extensionConfig);
   const ctx2 = await esbuild.context(webviewConfig);
@@ -210,5 +221,6 @@ if (watch) {
   await esbuild.build(wulffTestConfig);
   await esbuild.build(trajectoryTestConfig);
   await esbuild.build(nnMatchingTestConfig);
+  await esbuild.build(downsampleTestConfig);
   console.log('Build complete.');
 }

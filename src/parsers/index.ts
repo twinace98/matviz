@@ -56,6 +56,25 @@ function attachGridList<T extends { volumetric?: VolumetricData; volumetrics?: V
   return r;
 }
 
+/**
+ * v0.22 Tier 3 string-path cap, applied to EVERY grid. v0.23.1 fix: only
+ * `volumetric` used to be decimated, and `attachGridList` then replaced it
+ * with the untouched `volumetrics[0]` — so the user cap silently did nothing
+ * for XSF / CHGCAR (multi-grid capable) files under the byte-path threshold.
+ */
+function decimateGrids<T extends { volumetric?: VolumetricData; volumetrics?: VolumetricData[] }>(
+  r: T, options?: VolumetricLoadOptions,
+): T {
+  if (options?.maxGridPoints == null) return r;
+  if (r.volumetrics && r.volumetrics.length > 0) {
+    r.volumetrics = r.volumetrics.map(g => decimateVolumetric(g, options));
+    r.volumetric = r.volumetrics[0];
+  } else if (r.volumetric) {
+    r.volumetric = decimateVolumetric(r.volumetric, options);
+  }
+  return r;
+}
+
 // Cells past this size skip spglib — analyze_cell cost is non-monotone in
 // atom count (~240 ms at 216, ~7 s at 512 for diamond Fd-3m supercells).
 const SYMMETRY_MAX_ATOMS = 256;
@@ -87,10 +106,7 @@ export function parseStructureFile(
   // as a "fast-render" preference. Null/undefined leaves the grid alone
   // (the safety default cap is byte-path-only since small files cannot
   // hit the 4 GiB ArrayBuffer ceiling).
-  if (r.volumetric && options?.maxGridPoints != null) {
-    return attachGridList({ ...r, volumetric: decimateVolumetric(r.volumetric, options) }, filename);
-  }
-  return attachGridList(r, filename);
+  return attachGridList(decimateGrids({ ...r }, options), filename);
 }
 
 function parseStructureFileRaw(content: string, filename: string): ParseResult {
@@ -170,9 +186,7 @@ export function parseStructureFileTraj(
 ): ParseTrajectoryResult {
   const r = parseStructureFileTrajRaw(content, filename);
   // v0.22 Tier 3: same "user-set cap applies" rule as parseStructureFile.
-  if (r.volumetric && options?.maxGridPoints != null) {
-    r.volumetric = decimateVolumetric(r.volumetric, options);
-  }
+  decimateGrids(r, options);
   attachGridList(r, filename);
   if (r.trajectory.frames.length > 0) {
     const f0 = withSymmetry(r.trajectory.frames[0]);
@@ -217,9 +231,13 @@ export function parseStructureFileTrajFromBytes(
     throw new Error(`parseStructureFileTrajFromBytes: unsupported byte-path format ${filename}`);
   }
   const f0 = withSymmetry(result.structure);
+  // v0.23.1 fix: forward the full grid list. Passing only `volumetric` here
+  // collapsed CHGCAR spin/SOC and multi-DATAGRID XSF to their first grid on
+  // the byte path (files ≥ 256 MiB).
   return attachGridList({
     trajectory: { frames: [f0], latticeMode: 'fixed' },
     volumetric: result.volumetric,
+    volumetrics: result.volumetrics,
   }, filename);
 }
 

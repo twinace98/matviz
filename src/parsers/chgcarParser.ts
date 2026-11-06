@@ -3,6 +3,7 @@ import {
   VolumetricLoadOptions, VOLUMETRIC_SAFETY_MAX_GRID_POINTS, chooseStride,
 } from './types';
 import { parsePoscar } from './poscarParser';
+import { TentAccumulator } from './downsample';
 import { iterLines, offsetAfterLines } from './lineIterator';
 
 /**
@@ -255,13 +256,21 @@ export function parseChgcarFromBytes(
   // v0.23.3: stream ALL grid blocks (charge + magnetization/σ), skipping the
   // PAW augmentation sections between them; each new block begins at a
   // repeated `nx ny nz` dims line. Stride applied per grid during ingestion.
+  // v0.23.1: factor > 1 → tent accumulator (periodic splat; CHGCAR grids are
+  // periodic with no duplicated endpoint). Factor 1 writes straight through.
   const rawGrids: Float32Array[] = [];
-  let data = new Float32Array(outNx * outNy * outNz);
+  const newAcc = () => (stride > 1
+    ? new TentAccumulator([nx, ny, nz], [outNx, outNy, outNz], { order: 'x-fastest' })
+    : null);
+  let acc = newAcc();
+  let data: Float32Array | null = acc ? null : new Float32Array(totalPoints);
   let ix = 0, iy = 0, iz = 0, count = 0;
   let reading = true;  // true = accumulating a grid; false = seeking next dims line
 
+  const bank = () => { rawGrids.push(acc ? acc.finish() : data!); };
   const startNewGrid = () => {
-    data = new Float32Array(outNx * outNy * outNz);
+    acc = newAcc();
+    data = acc ? null : new Float32Array(totalPoints);
     ix = iy = iz = count = 0;
     reading = true;
   };
@@ -276,7 +285,7 @@ export function parseChgcarFromBytes(
       // Current grid full: bank it, then seek the next block. The finishing
       // line is usually `augmentation …`; if it's already the next dims line
       // (no augmentation), start the next grid immediately.
-      rawGrids.push(data);
+      bank();
       reading = false;
       if (isDimsLine(line, nx, ny, nz)) startNewGrid();
       continue;
@@ -290,17 +299,15 @@ export function parseChgcarFromBytes(
     for (const t of tokens) {
       if (count >= totalPoints || t === '') continue;
       // CHGCAR source ordering matches XSF (Fortran ix-fastest in stream).
-      if (ix % stride === 0 && iy % stride === 0 && iz % stride === 0) {
-        const oi = ix / stride, oj = iy / stride, ok = iz / stride;
-        data[oi * outNy * outNz + oj * outNz + ok] = parseFloat(t);
-      }
+      if (acc) acc.push(parseFloat(t));
+      else data![ix * ny * nz + iy * nz + iz] = parseFloat(t);
       count++;
       ix++;
       if (ix === nx) { ix = 0; iy++; if (iy === ny) { iy = 0; iz++; } }
     }
   }
   // Bank a trailing grid that completed on the final line (no separator after).
-  if (reading && count >= totalPoints) rawGrids.push(data);
+  if (reading && count >= totalPoints) bank();
 
   const scale = 1 / cellVolume(structure.lattice);
   const volumetrics = buildChgcarGrids(
