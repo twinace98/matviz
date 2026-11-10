@@ -3,9 +3,11 @@ import {
   VolumetricLoadOptions, VOLUMETRIC_SAFETY_MAX_GRID_POINTS, chooseStride,
 } from './types';
 import { getElementByNumber } from '../shared/elements-data';
-import { iterLines, findBytes } from './lineIterator';
+import { iterLines, iterLineSpans, findBytes, firstNumbers, lastNumbersBefore } from './lineIterator';
+import { GridResampler, detectRedundantEndpoints, outputCount } from './downsample';
 
 const DATAGRID_MARKER = new TextEncoder().encode('BEGIN_BLOCK_DATAGRID_3D');
+const END_DATAGRID_MARKER = new TextEncoder().encode('END_DATAGRID_3D');
 
 /**
  * Auto-detect trailing vector data in a batch of PRIMCOORD/ATOMS atom rows.
@@ -396,7 +398,7 @@ function parseDatagrids3D(block: string): VolumetricData[] {
  * The spanning vectors are unchanged — they still describe the full cell edge,
  * which after trimming is spanned by `N-1` intervals as it should be.
  */
-function trimRedundantPeriodicPlanes(vd: VolumetricData): VolumetricData {
+export function trimRedundantPeriodicPlanes(vd: VolumetricData): VolumetricData {
   const [nx, ny, nz] = vd.dims;
   const d = vd.data;
   const at = (ix: number, iy: number, iz: number) => d[ix * ny * nz + iy * nz + iz];
@@ -463,7 +465,7 @@ function trimRedundantPeriodicPlanes(vd: VolumetricData): VolumetricData {
  * genuine sub-region (offset origin or a length ratio far from 1) are left
  * untouched so partial-cell plots keep their own extent.
  */
-function snapGridLatticeToCell(
+export function snapGridLatticeToCell(
   vd: VolumetricData,
   cell: [number, number, number][],
 ): void {
@@ -523,9 +525,11 @@ export function parseXsfFromBytes(
  * v0.23.2 byte-path multi-grid parser. Streams the byte block once,
  * finalizing each grid at its `END_DATAGRID_3D` and resuming the scan for
  * the next `BEGIN_DATAGRID_3D` (handles multiple grids and multiple BLOCK
- * sections). Stride/decimation applied per grid during ingestion, exactly
- * as the single-grid v0.22 path did; boundary-plane trim only when
- * stride === 1 (decimated endpoints no longer match).
+ * sections). Downsampling (v0.23.1 trilinear resampling) is applied per grid during
+ * ingestion. At factor 1 the full grid is read and the existing full-volume
+ * `trimRedundantPeriodicPlanes` runs; at factor > 1 the periodic-closure
+ * planes are detected up front from the first/last data planes and given
+ * zero weight, so the output stays on the true periodic lattice.
  */
 function parseDatagrids3DFromBytes(blockBytes: Uint8Array, options?: VolumetricLoadOptions): VolumetricData[] {
   const cap = options?.maxGridPoints ?? VOLUMETRIC_SAFETY_MAX_GRID_POINTS;
@@ -540,8 +544,10 @@ function parseDatagrids3DFromBytes(blockBytes: Uint8Array, options?: VolumetricL
   let data: Float32Array | null = null;
   let stride = 1, outNx = 0, outNy = 0, outNz = 0, totalPoints = 0;
   let ix = 0, iy = 0, iz = 0, count = 0;
+  let acc: GridResampler | null = null;
 
   const finalize = () => {
+    if (acc) { data = acc.finish(); acc = null; }
     if (!data) return;
     const result: VolumetricData = { origin, lattice: gridLattice, dims: [outNx, outNy, outNz], data };
     let out: VolumetricData;
@@ -558,7 +564,7 @@ function parseDatagrids3DFromBytes(blockBytes: Uint8Array, options?: VolumetricL
     data = null; gridLattice = []; origin = [0, 0, 0]; stride = 1; count = 0; ix = iy = iz = 0;
   };
 
-  for (const rawLine of iterLines(blockBytes)) {
+  for (const { line: rawLine, next } of iterLineSpans(blockBytes)) {
     const line = rawLine.trim();
     if (stage === 'find-begin') {
       if (line.startsWith('BEGIN_DATAGRID_3D')) {
@@ -573,10 +579,6 @@ function parseDatagrids3DFromBytes(blockBytes: Uint8Array, options?: VolumetricL
       nx = t[0]; ny = t[1]; nz = t[2];
       totalPoints = nx * ny * nz;
       stride = chooseStride(nx, ny, nz, cap);
-      outNx = Math.ceil(nx / stride);
-      outNy = Math.ceil(ny / stride);
-      outNz = Math.ceil(nz / stride);
-      data = new Float32Array(outNx * outNy * outNz);
       stage = 'origin';
       continue;
     }
@@ -590,6 +592,28 @@ function parseDatagrids3DFromBytes(blockBytes: Uint8Array, options?: VolumetricL
       const t = line.split(/\s+/).map(Number);
       gridLattice.push([t[0], t[1], t[2]]);
       stage = stage === 'vec1' ? 'vec2' : stage === 'vec2' ? 'vec3' : 'data';
+      if (stage === 'data') {
+        if (stride > 1) {
+          // Probe the periodic-closure planes before splatting: the first
+          // plane follows this line, the last one precedes END_DATAGRID_3D.
+          const endAt = findBytes(blockBytes, END_DATAGRID_MARKER, next);
+          const plane = nx * ny;
+          const skip = endAt > 0
+            ? detectRedundantEndpoints([nx, ny, nz], firstNumbers(blockBytes, next, plane), lastNumbersBefore(blockBytes, endAt, plane))
+            : [false, false, false] as [boolean, boolean, boolean];
+          const neff = (n: number, k: boolean) => (k && n > 1 ? n - 1 : n);
+          stride = Math.max(1, chooseStride(neff(nx, skip[0]), neff(ny, skip[1]), neff(nz, skip[2]), cap));
+          outNx = outputCount(nx, stride, skip[0]);
+          outNy = outputCount(ny, stride, skip[1]);
+          outNz = outputCount(nz, stride, skip[2]);
+          acc = new GridResampler([nx, ny, nz], [outNx, outNy, outNz], { order: 'x-fastest', skipLast: skip });
+        }
+        if (!acc) {
+          stride = 1;
+          outNx = nx; outNy = ny; outNz = nz;
+          data = new Float32Array(nx * ny * nz);
+        }
+      }
       continue;
     }
     // stage === 'data'
@@ -603,12 +627,9 @@ function parseDatagrids3DFromBytes(blockBytes: Uint8Array, options?: VolumetricL
     for (const t of tokens) {
       if (count >= totalPoints || t === '') continue;
       // Source ordering (XSF Fortran): ix fastest in the file stream;
-      // storage is C order (iz fastest in memory). Apply stride during
-      // ingestion: emit only when all three indices are multiples of stride.
-      if (ix % stride === 0 && iy % stride === 0 && iz % stride === 0) {
-        const oi = ix / stride, oj = iy / stride, ok = iz / stride;
-        data![oi * outNy * outNz + oj * outNz + ok] = parseFloat(t);
-      }
+      // storage is C order (iz fastest in memory).
+      if (acc) acc.push(parseFloat(t));
+      else data![ix * ny * nz + iy * nz + iz] = parseFloat(t);
       count++;
       ix++;
       if (ix === nx) { ix = 0; iy++; if (iy === ny) { iy = 0; iz++; } }

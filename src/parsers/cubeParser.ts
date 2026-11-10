@@ -4,6 +4,7 @@ import {
 } from './types';
 import { getElementByNumber } from '../shared/elements-data';
 import { iterLines, offsetAfterLines } from './lineIterator';
+import { GridResampler } from './downsample';
 
 const BOHR_TO_ANG = 0.529177249;
 
@@ -15,7 +16,7 @@ interface CubeHeader {
   nAtoms: number;
 }
 
-function parseCubeHeader(lines: string[]): CubeHeader {
+export function parseCubeHeader(lines: string[]): CubeHeader {
   const title = lines[0].trim();
 
   const line2 = lines[2].trim().split(/\s+/).map(Number);
@@ -121,12 +122,13 @@ export function parseCubeFromBytes(
   const outNx = Math.ceil(nx / stride);
   const outNy = Math.ceil(ny / stride);
   const outNz = Math.ceil(nz / stride);
-  const data = new Float32Array(outNx * outNy * outNz);
-
-  // Cube source ordering: for ix in 0..nx, for iy in 0..ny, for iz in 0..nz
-  // (iz is fastest in the file stream as well as in memory storage). Walk
-  // (ix, iy, iz) counters and write only when all three are stride-aligned.
-  let ix = 0, iy = 0, iz = 0;
+  // Cube source ordering: ix slowest, iz fastest — identical to the C-order
+  // memory layout, so factor 1 writes straight through. Factor > 1 feeds the
+  // v0.23.1 trilinear resampler (periodic, no position drift).
+  const acc = stride > 1
+    ? new GridResampler([nx, ny, nz], [outNx, outNy, outNz], { order: 'z-fastest' })
+    : null;
+  let data: Float32Array | null = acc ? null : new Float32Array(totalPoints);
   let count = 0;
 
   if (dataStartByte >= 0) {
@@ -135,22 +137,19 @@ export function parseCubeFromBytes(
       const tokens = rawLine.trim().split(/\s+/);
       for (const t of tokens) {
         if (count >= totalPoints || t === '') continue;
-        if (ix % stride === 0 && iy % stride === 0 && iz % stride === 0) {
-          const oi = ix / stride, oj = iy / stride, ok = iz / stride;
-          data[oi * outNy * outNz + oj * outNz + ok] = parseFloat(t);
-        }
+        if (acc) acc.push(parseFloat(t));
+        else data![count] = parseFloat(t);
         count++;
-        iz++;
-        if (iz === nz) { iz = 0; iy++; if (iy === ny) { iy = 0; ix++; } }
       }
     }
   }
 
+  if (acc) data = acc.finish();
   const volumetric: VolumetricData = {
     origin: header.origin,
     lattice: header.lattice,
     dims: [outNx, outNy, outNz],
-    data,
+    data: data!,
   };
   if (stride > 1) {
     volumetric.stride = stride;

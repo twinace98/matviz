@@ -183,6 +183,39 @@ const nnMatchingTestConfig = {
   sourcemap: false,
 };
 
+// Tent downsampling test (v0.23.1.4). Unit + fixture drift checks.
+const downsampleTestConfig = {
+  entryPoints: ['scripts/test-downsample.ts'],
+  bundle: true,
+  outfile: 'dist/test-downsample.js',
+  format: 'cjs',
+  platform: 'node',
+  target: 'node18',
+  sourcemap: false,
+};
+
+// Header-only volumetric preflight test (v0.23.1.2).
+const probeTestConfig = {
+  entryPoints: ['scripts/test-volumetric-probe.ts'],
+  bundle: true,
+  outfile: 'dist/test-volumetric-probe.js',
+  format: 'cjs',
+  platform: 'node',
+  target: 'node18',
+  sourcemap: false,
+};
+
+// Streaming volumetric parser test (v0.23.1.3). `--large` adds a > 2 GiB file.
+const streamTestConfig = {
+  entryPoints: ['scripts/test-volumetric-stream.ts'],
+  bundle: true,
+  outfile: 'dist/test-volumetric-stream.js',
+  format: 'cjs',
+  platform: 'node',
+  target: 'node18',
+  sourcemap: false,
+};
+
 if (watch) {
   const ctx1 = await esbuild.context(extensionConfig);
   const ctx2 = await esbuild.context(webviewConfig);
@@ -210,5 +243,8 @@ if (watch) {
   await esbuild.build(wulffTestConfig);
   await esbuild.build(trajectoryTestConfig);
   await esbuild.build(nnMatchingTestConfig);
+  await esbuild.build(downsampleTestConfig);
+  await esbuild.build(probeTestConfig);
+  await esbuild.build(streamTestConfig);
   console.log('Build complete.');
 }

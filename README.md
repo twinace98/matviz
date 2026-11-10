@@ -207,6 +207,16 @@ panels.
   marching-squares on each boundary slice produces the cap polygon,
   closing the iso and giving it a solid "cut" appearance instead of open
   edges.
+- **Large files** (v0.23.1): cube / XSF / CHGCAR files of 256 MiB or more
+  are streamed from disk in chunks — no 2 GiB or string-size limit, and
+  memory ≈ the loaded grid. The grid header is read first; when the full
+  grid would need more than `matviz.volumetric.promptAboveBytes` (default
+  1 GiB) MatViz asks which resolution to load (recommended / smaller /
+  original). Downsampling is periodic trilinear resampling: positions stay
+  exact (no drift when the grid size is not divisible), peaks are largely
+  kept, but features narrower than one output voxel can be lost. Loading
+  shows a cancellable progress notification. `matviz.volumetric.maxGridPoints`
+  (if set) skips the question.
 - **Non-periodic data caveat**: the supercell tiling assumes the input
   is periodic (DFT CHGCAR/XSF always are). Molecular cube files that
   happen to be stored with a large padding box may show visible seams
@@ -412,6 +422,8 @@ Common options:
 | `--compare-to-phase` | NN displacement arrows + `[comparison] RMSD: …` stdout summary against the first `--phase`. PBC-aware on identical lattices. Requires `--phase`; incompatible with `--all-frames`. |
 | `--info` | Print structure summary (atoms, formula, cell, volume, space group, crystal system, Hall number) to stdout. If `-o` is omitted, exits without launching the headless browser — sub-100 ms cold. Combine with `-o` for both PNG + summary. |
 | `--json` | Emit `--info` output as JSON. Implies `--info`. |
+| `--max-grid-points <n>` | Per-grid point budget for volumetric files (default `2e7`; `full` = 4×10⁸ safety cap only). Larger grids are downsampled while streaming (periodic trilinear). `--info` reports the grid and factor. |
+| `--timeout <s>` | Seconds allowed for page load + scene build (default 30). Raise for large supercells or dense volumetric grids. |
 | `--no-bonds` / `--no-boundary` / `--no-cell` | Disable bonds / boundary atoms / cell wireframe |
 
 Run `node dist/render.js --help` for the full list.

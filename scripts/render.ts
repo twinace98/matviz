@@ -1,9 +1,22 @@
 import puppeteer from 'puppeteer';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { parseStructureFile, parseStructureFileTraj } from '../src/parsers/index';
 import { ELEMENTS, DEFAULT_ELEMENT } from '../src/shared/elements-data';
 import { initSpglibSync } from '../src/shared/spglibWasm';
+import { probeVolumetric, volumetricFormatOf, bytesForFactor, VolumetricProbe } from '../src/parsers/volumetricProbe';
+import { parseVolumetricStream, readVolumetricStructure } from '../src/parsers/volumetricStream';
+import type { CrystalStructure } from '../src/parsers/types';
+import { VOLUMETRIC_SAFETY_MAX_GRID_POINTS } from '../src/parsers/types';
+
+/**
+ * v0.23.1: default per-grid point budget for CLI renders. SwiftShader runs
+ * marching cubes and rasterization on the CPU, so the CLI caps far below the
+ * extension's 4×10⁸ memory-safety default. Larger grids are downsampled
+ * (periodic trilinear) while streaming; `--max-grid-points` overrides.
+ */
+const CLI_DEFAULT_MAX_GRID_POINTS = 2e7;
 
 // Initialize spglib WASM at CLI startup so parseStructureFile()'s post-pass
 // can detect symmetry. Same artifact the extension host uses (copied to
@@ -78,6 +91,10 @@ interface RenderOptions {
   // given). `infoJson` switches the text format to JSON.
   info: boolean;
   infoJson: boolean;
+  // Seconds allowed for page load + scene build (default 30).
+  timeout: number;
+  // v0.23.1: per-grid point budget; larger volumetric grids are downsampled.
+  maxGridPoints: number;
 }
 
 function parseArgs(argv: string[]): RenderOptions {
@@ -116,6 +133,8 @@ function parseArgs(argv: string[]): RenderOptions {
     compareToPhase: false,
     info: false,
     infoJson: false,
+    timeout: 30,
+    maxGridPoints: CLI_DEFAULT_MAX_GRID_POINTS,
   };
 
   const args = argv.slice(2);
@@ -194,6 +213,19 @@ function parseArgs(argv: string[]): RenderOptions {
       case '--compare-to-phase': opts.compareToPhase = true; break;
       case '--info': opts.info = true; break;
       case '--json': opts.infoJson = true; opts.info = true; break;
+      case '--max-grid-points': {
+        const raw = args[++i];
+        const v = raw === 'full' ? VOLUMETRIC_SAFETY_MAX_GRID_POINTS : parseFloat(raw);
+        if (!(v >= 1)) { console.error(`Invalid --max-grid-points: ${raw} (number ≥ 1, or "full")`); process.exit(1); }
+        opts.maxGridPoints = v;
+        break;
+      }
+      case '--timeout': {
+        const v = parseFloat(args[++i]);
+        if (!(v > 0)) { console.error(`Invalid --timeout: ${args[i]} (seconds, > 0)`); process.exit(1); }
+        opts.timeout = v;
+        break;
+      }
       case '-h': case '--help': printHelp(); process.exit(0);
       default:
         if (!a.startsWith('-')) positional.push(a);
@@ -290,6 +322,13 @@ Options:
                          omitted; combines with -o to render PNG AND print.
   --json                 Emit --info as JSON (implies --info). Useful for
                          report-generation pipelines.
+  --max-grid-points <n>  Volumetric grids with more points are downsampled
+                         (periodic trilinear) while the file streams in.
+                         Default 2e7 (≈ 270³); "full" = memory-safety cap
+                         only (4e8). --info shows the grid and the factor.
+  --timeout <s>          Seconds allowed for page load + scene build
+                         (default: 30). Raise for large supercells or
+                         dense volumetric grids.
   --test                 Render test scene (red sphere)
   -h, --help             Show this help`);
 }
@@ -359,6 +398,18 @@ const phases = ${phasesJSON};
 // stdout summary.
 const compareToPhase = ${compareToPhase ? 'true' : 'false'};
 const volumetric = ${volumetricJSON || 'null'};
+// v0.23.1: the grid is a raw Float32 side file (JSON-inlining it hit the V8
+// string limit at ~300³). XHR because fetch() refuses file:// URLs.
+if (volumetric && volumetric.dataUrl) {
+  volumetric.data = await new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('GET', volumetric.dataUrl);
+    xhr.responseType = 'arraybuffer';
+    xhr.onload = () => resolve(new Float32Array(xhr.response));
+    xhr.onerror = () => reject(new Error('could not load grid data ' + volumetric.dataUrl));
+    xhr.send();
+  });
+}
 const OPTS = ${JSON.stringify({
     style: opts.style,
     camera: opts.camera,
@@ -1431,7 +1482,7 @@ if (OPTS.polyhedra && bonds.length > 0) {
 
 // --- Isosurface (volumetric data) ---
 if (volumetric && OPTS.iso !== null && OPTS.iso > 0) {
-  const baseData = new Float32Array(volumetric.data);
+  const baseData = volumetric.data instanceof Float32Array ? volumetric.data : new Float32Array(volumetric.data);
   const vorigin = volumetric.origin;
   const vlat = volumetric.lattice;
   const level = OPTS.iso;
@@ -1528,10 +1579,21 @@ if (OPTS.plane) {
   scene.add(planeMesh);
 }
 
-// --- Fog ---
+// --- Clipping range + fog, scaled to the camera distance ---
+// v0.23.1: the camera sits ~2.6×size from the center, so a fixed far plane
+// (500) clipped every object above ~160 Å and a fixed fog density (0.015)
+// washed structures above ~40 Å into the background color (all-white PNGs
+// on --bg white). Mirrors the webview's size-aware fog (renderer.ts).
+const camDist = camera.position.distanceTo(new THREE.Vector3(...center));
+camera.far = Math.max(500, camDist + size * 2);
+if (OPTS.camera !== 'persp') camera.near = -camera.far;
+camera.updateProjectionMatrix();
+
 if (OPTS.bg !== 'transparent') {
   const fogColor = new THREE.Color(OPTS.bg);
-  scene.fog = new THREE.FogExp2(fogColor, 0.015);
+  // Caps fog at the scene center to 1 - exp(-0.09) ≈ 8.6% for any size;
+  // structures with camDist < 20 Å keep the original 0.015 density.
+  scene.fog = new THREE.FogExp2(fogColor, Math.min(0.015, 0.3 / camDist));
 }
 
 // --- Render ---
@@ -1542,11 +1604,20 @@ window.__renderDone = true;
 
 // --- Structure info printer (text + JSON) ---
 
-function printStructureInfo(opts: RenderOptions) {
-  const content = fs.readFileSync(opts.input, 'utf8');
+async function printStructureInfo(opts: RenderOptions) {
   const filename = path.basename(opts.input);
-  const parsed = parseStructureFile(content, filename);
-  const s = parsed.structure;
+  // v0.23.1: volumetric files are summarized from the header alone (no grid
+  // read), so --info stays instant on multi-GB files.
+  let s: CrystalStructure | null = null;
+  let probe: VolumetricProbe | null = null;
+  if (volumetricFormatOf(filename)) {
+    try {
+      const r = await readVolumetricStructure(opts.input, filename,
+        await probeVolumetric(opts.input, filename, { maxGridPoints: opts.maxGridPoints }));
+      s = r.structure; probe = r.probe;
+    } catch { /* no grid (e.g. plain XSF) → full parse below */ }
+  }
+  if (!s) s = parseStructureFile(fs.readFileSync(opts.input, 'utf8'), filename).structure;
   // Cell parameters
   const a = Math.hypot(s.lattice[0][0], s.lattice[0][1], s.lattice[0][2]);
   const b = Math.hypot(s.lattice[1][0], s.lattice[1][1], s.lattice[1][2]);
@@ -1591,6 +1662,19 @@ function printStructureInfo(opts: RenderOptions) {
       spaceGroupNumber: s.spaceGroupNumber ?? null,
       hallNumber: s.hallNumber ?? null,
       crystalSystem,
+      ...(probe ? { volumetric: {
+        format: probe.format,
+        dims: probe.dims,
+        effectiveDims: probe.effectiveDims,
+        gridsInFile: probe.gridCount,
+        gridsInFileEstimated: probe.gridCountEstimated,
+        gridsLoaded: probe.outputGridCount,
+        fullResBytes: probe.fullResBytes,
+        maxGridPoints: opts.maxGridPoints,
+        factor: probe.recommendedFactor,
+        renderDims: probe.recommendedDims,
+        renderBytes: bytesForFactor(probe, probe.recommendedFactor),
+      } } : {}),
     }, null, 2) + '\n');
   } else {
     const lines = [
@@ -1601,8 +1685,52 @@ function printStructureInfo(opts: RenderOptions) {
       `Crystal system: ${crystalSystem}`,
     ];
     if (s.hallNumber) lines.push(`Hall number: ${s.hallNumber}`);
+    if (probe) {
+      const d = (v: number[]) => v.join('×');
+      const gib = (b: number) => b >= 2 ** 30 ? `${(b / 2 ** 30).toFixed(2)} GiB` : `${(b / 2 ** 20).toFixed(1)} MiB`;
+      const grids = `${probe.gridCountEstimated ? '≈' : ''}${probe.gridCount} grid${probe.gridCount > 1 ? 's' : ''}` +
+        (probe.outputGridCount !== probe.gridCount ? ` → ${probe.outputGridCount} loaded` : '');
+      lines.push(`Grid: ${d(probe.dims)}${probe.effectiveDims.join() !== probe.dims.join() ? ` (periodic ${d(probe.effectiveDims)})` : ''}, ${grids}, ${gib(probe.fullResBytes)} at full resolution`);
+      lines.push(probe.recommendedFactor > 1
+        ? `Render grid: ${d(probe.recommendedDims)} (factor ${probe.recommendedFactor}, ${gib(bytesForFactor(probe, probe.recommendedFactor))}; --max-grid-points ${opts.maxGridPoints})`
+        : `Render grid: full resolution (within --max-grid-points ${opts.maxGridPoints})`);
+    }
     process.stdout.write(lines.join('\n') + '\n');
   }
+}
+
+// --- Input loading ---
+
+/**
+ * v0.23.1: volumetric files (cube / XSF / CHGCAR with a grid) stream through
+ * `parseVolumetricStream` — no whole-file string, downsampled to
+ * `maxGridPoints` while reading. Everything else (and XSF animations, which
+ * are trajectories) keeps the string parser.
+ */
+async function loadInput(input: string, maxGridPoints: number) {
+  const filename = path.basename(input);
+  if (volumetricFormatOf(filename) && !filename.toLowerCase().endsWith('.axsf')) {
+    let probe: VolumetricProbe | null = null;
+    try { probe = await probeVolumetric(input, filename, { maxGridPoints }); } catch { /* no grid */ }
+    if (probe && !(probe.format === 'xsf' && headContains(input, 'ANIMSTEPS'))) {
+      const r = await parseVolumetricStream(input, filename, { probe });
+      if (r.factor > 1) {
+        const d = (v: number[]) => v.join('×');
+        console.error(`[matviz] grid ${d(probe.dims)} → ${d(r.volumetric!.dims)} (factor ${r.factor}, trilinear) to fit --max-grid-points ${maxGridPoints}`);
+      }
+      return r;
+    }
+  }
+  return parseStructureFileTraj(fs.readFileSync(input, 'utf-8'), filename);
+}
+
+function headContains(file: string, text: string): boolean {
+  const fd = fs.openSync(file, 'r');
+  try {
+    const buf = Buffer.alloc(64 * 1024);
+    const n = fs.readSync(fd, buf, 0, buf.length, 0);
+    return buf.subarray(0, n).toString('latin1').includes(text);
+  } finally { fs.closeSync(fd); }
 }
 
 // --- Main render function ---
@@ -1622,7 +1750,7 @@ async function render(opts: RenderOptions) {
   // --info: print structure summary to stdout. If --info alone (no -o), exit
   // without spinning up Puppeteer (fast path for report pipelines).
   if (opts.info) {
-    printStructureInfo(opts);
+    await printStructureInfo(opts);
     if (!opts.output) return;
   }
 
@@ -1638,7 +1766,11 @@ async function render(opts: RenderOptions) {
     ],
   });
 
-  const tmpHtml = path.join(__dirname, '_render_tmp.html');
+  // Per-process temp page: concurrent CLI runs used to share
+  // dist/_render_tmp.html and could overwrite or delete each other's page.
+  const tmpHtml = path.join(os.tmpdir(), `matviz_render_${process.pid}_${Date.now()}.html`);
+  const timeoutMs = Math.round(opts.timeout * 1000);
+  const tmpGrid = tmpHtml.replace(/\.html$/, '.f32');
   try {
     const page = await browser.newPage();
     await page.setViewport({ width: opts.width, height: opts.height });
@@ -1658,8 +1790,10 @@ async function render(opts: RenderOptions) {
         .replace(/__THREE_PATH__/g, `file://${threePath}`)
         .replace(/__HELPERS_PATH__/g, `file://${helpersPath}`);
       fs.writeFileSync(tmpHtml, fixed);
-      await page.goto(`file://${tmpHtml}`, { waitUntil: 'networkidle0', timeout: 30000 });
-      await page.waitForFunction('window.__renderDone === true', { timeout: 30000 });
+      // `__renderDone` is the real completion signal; 'networkidle0' only
+      // added a second, redundant deadline on the same (synchronous) work.
+      await page.goto(`file://${tmpHtml}`, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
+      await page.waitForFunction('window.__renderDone === true', { timeout: timeoutMs });
       await new Promise(r => setTimeout(r, 200));
       const dataUrl = await page.evaluate(() => {
         const c = document.getElementById('c') as HTMLCanvasElement;
@@ -1699,10 +1833,8 @@ async function render(opts: RenderOptions) {
         return;
       }
 
-      const content = fs.readFileSync(opts.input, 'utf-8');
-      const filename = path.basename(opts.input);
-      // Trajectory-aware dispatch.
-      const trajResult = parseStructureFileTraj(content, filename);
+      // Trajectory-aware dispatch; volumetric files stream (v0.23.1).
+      const trajResult = await loadInput(opts.input, opts.maxGridPoints);
       const traj = trajResult.trajectory;
       // v0.23.4: pick the named grid when --grid is given; else grid[0].
       const allGrids = trajResult.volumetrics ?? (trajResult.volumetric ? [trajResult.volumetric] : []);
@@ -1715,12 +1847,19 @@ async function render(opts: RenderOptions) {
           console.error(`[matviz] --grid "${opts.grid}" not found. Available: ${allGrids.map(g => g.name ?? '(unnamed)').join(', ')}. Using "${chosenGrid?.name ?? 'first'}".`);
         }
       }
-      const volumetricJSON = chosenGrid ? JSON.stringify({
-        origin: chosenGrid.origin,
-        lattice: chosenGrid.lattice,
-        dims: chosenGrid.dims,
-        data: Array.from(chosenGrid.data),
-      }) : null;
+      // v0.23.1: grid values go to a raw Float32 side file (only when an
+      // isosurface is requested — nothing else in the page reads the grid).
+      let volumetricJSON: string | null = null;
+      if (chosenGrid && opts.iso !== null) {
+        const g = chosenGrid.data;
+        fs.writeFileSync(tmpGrid, Buffer.from(g.buffer, g.byteOffset, g.byteLength));
+        volumetricJSON = JSON.stringify({
+          origin: chosenGrid.origin,
+          lattice: chosenGrid.lattice,
+          dims: chosenGrid.dims,
+          dataUrl: `file://${tmpGrid}`,
+        });
+      }
 
       // Multi-phase overlay: load + parse each --phase file (single-frame
       // extracted via parseStructureFile). Pass as JSON to inline HTML.
@@ -1776,6 +1915,7 @@ async function render(opts: RenderOptions) {
     }
   } finally {
     try { fs.unlinkSync(tmpHtml); } catch {}
+    try { fs.unlinkSync(tmpGrid); } catch {}
     await browser.close();
   }
 }

@@ -18,17 +18,21 @@ function pass(msg: string): void { console.log(`PASS: ${msg}`); }
   const p = path.join(ROOT, 'test/fixtures/test-magmom.poscar');
   const s = parsePoscar(fs.readFileSync(p, 'utf8'));
   if (s.species.length !== 4) fail(`expected 4 atoms, got ${s.species.length}`);
-  if (!s.magMom) fail('magMom missing');
-  if (s.magMom.length !== 4) fail(`magMom length ${s.magMom.length} != 4`);
+  // v0.18.1: moments live in the generic vector overlay field.
+  const v = s.atomVectors;
+  if (!v) fail('atomVectors missing');
+  if (v.kind !== 'magmom') fail(`atomVectors.kind ${v.kind} != 'magmom'`);
+  const m = v.values;
+  if (m.length !== 4) fail(`magmom length ${m.length} != 4`);
   // Ni up, Ni down, O zero, O zero
-  if (!approx(s.magMom[0][2], 2.0) || !approx(s.magMom[1][2], -2.0)) {
-    fail(`Ni moments z mismatch: ${s.magMom[0][2]}, ${s.magMom[1][2]}`);
+  if (!approx(m[0][2], 2.0) || !approx(m[1][2], -2.0)) {
+    fail(`Ni moments z mismatch: ${m[0][2]}, ${m[1][2]}`);
   }
-  if (!approx(s.magMom[2][2], 0) || !approx(s.magMom[3][2], 0)) {
-    fail(`O moments z mismatch: ${s.magMom[2][2]}, ${s.magMom[3][2]}`);
+  if (!approx(m[2][2], 0) || !approx(m[3][2], 0)) {
+    fail(`O moments z mismatch: ${m[2][2]}, ${m[3][2]}`);
   }
-  if (s.magMom[0][0] !== 0 || s.magMom[0][1] !== 0) {
-    fail(`Ni moment x/y should be 0 in collinear, got [${s.magMom[0].join(',')}]`);
+  if (m[0][0] !== 0 || m[0][1] !== 0) {
+    fail(`Ni moment x/y should be 0 in collinear, got [${m[0].join(',')}]`);
   }
   pass('NiO AFM POSCAR: collinear MAGMOM parsed → [0,0,±2] for Ni, [0,0,0] for O');
 }
@@ -37,8 +41,8 @@ function pass(msg: string): void { console.log(`PASS: ${msg}`); }
 {
   const p = path.join(ROOT, 'test/fixtures/silicon.poscar');
   const s = parsePoscar(fs.readFileSync(p, 'utf8'));
-  if (s.magMom !== undefined) fail(`silicon.poscar: magMom should be undefined, got ${JSON.stringify(s.magMom)}`);
-  pass('silicon.poscar: magMom field omitted (no MAGMOM tag)');
+  if (s.atomVectors !== undefined) fail(`silicon.poscar: atomVectors should be undefined, got ${JSON.stringify(s.atomVectors)}`);
+  pass('silicon.poscar: atomVectors omitted (no MAGMOM tag)');
 }
 
 // ---- Test 3: Mismatched token count silently ignored ----
